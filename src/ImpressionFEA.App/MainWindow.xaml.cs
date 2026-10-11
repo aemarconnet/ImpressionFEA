@@ -67,11 +67,14 @@ public partial class MainWindow : Window
                     var demo = vm.Demos[demoIndex];
                     await vm.LoadDemoAsync(demo);
                     if (args.Contains("--sweep") && demo.Sweep is { } sw && Enum.TryParse<SweepParameter>(sw.Parameter, true, out var sp))
-                        await vm.RunSweepAsync(sp, sw.Values, null);
+                        await vm.RunSweepAsync(sp, vm.DemoSweepText(sw).Split(", "), null);
                 }
 
                 if (tabIndex > 0 && FindName("ConfigTabs") is System.Windows.Controls.TabControl tabs) tabs.SelectedIndex = tabIndex;
                 ApplySetArgs(vm, args);
+                int show = Array.IndexOf(args, "--show-run");
+                if (show >= 0 && show + 1 < args.Length && int.TryParse(args[show + 1], out int runNo) && vm.Runs.FirstOrDefault(r => r.Number == runNo) is { } run)
+                    vm.SelectedRun = run;
                 await CaptureAsync(vm, args[cap + 1], args.Contains("--solve"));
             };
         }

@@ -62,6 +62,7 @@ public sealed class SolidViewport3D : Grid
     private readonly List<AuxView> _aux = [];
     private readonly Viewport3D _mainView;
     private readonly TextBlock _isoLabel;
+    private readonly AxisTriad _triad = new() { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(6, 0, 0, 26) };
     private readonly TextBlock _title = new() { Margin = new Thickness(12, 7, 0, 0), FontWeight = FontWeights.SemiBold, FontSize = 12 };
     private readonly ColorBar _bar = new() { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 30, 12, 0), Width = 84 };
     private readonly Material _fieldMaterial;
@@ -144,11 +145,14 @@ public sealed class SolidViewport3D : Grid
         Grid.SetRow(_isoLabel, 0);
         Grid.SetColumn(_isoLabel, 1);
         _views.Children.Add(_isoLabel);
+        _views.Children.Add(_triad);
         _views.SizeChanged += (_, _) => FitAux();
         LayoutViews();
         Children.Add(_views);
         Children.Add(_title);
         Children.Add(_bar);
+        _bar.SetBinding(ColorBar.ClipLowProperty, new System.Windows.Data.Binding(nameof(ClipLow)) { Source = this, Mode = System.Windows.Data.BindingMode.TwoWay });
+        _bar.SetBinding(ColorBar.ClipHighProperty, new System.Windows.Data.Binding(nameof(ClipHigh)) { Source = this, Mode = System.Windows.Data.BindingMode.TwoWay });
         Children.Add(new TextBlock
         {
             Text = "Middle-drag rotate · Ctrl+middle pan · Shift+middle / wheel zoom · Alt+middle roll · F fit · Ctrl+1–7 views · Space view menu · arrows rotate 15°",
@@ -311,6 +315,9 @@ public sealed class SolidViewport3D : Grid
         Grid.SetColumn(_mainView, quad ? 1 : 0);
         Grid.SetRowSpan(_mainView, quad ? 1 : 2);
         Grid.SetColumnSpan(_mainView, quad ? 1 : 2);
+        Grid.SetRow(_triad, quad ? 0 : 1);
+        Grid.SetColumn(_triad, quad ? 1 : 0);
+        _triad.Margin = new Thickness(6, 0, 0, quad ? 6 : 26);
         foreach (var a in _aux) a.Host.Visibility = quad ? Visibility.Visible : Visibility.Collapsed;
         _isoLabel.Visibility = quad ? Visibility.Visible : Visibility.Collapsed;
         if (quad)
@@ -353,8 +360,10 @@ public sealed class SolidViewport3D : Grid
             _view = new Viewport3D { Camera = _cam, IsHitTestVisible = false };
             _view.Children.Add(new ModelVisual3D { Content = lights });
             _view.Children.Add(Content);
-            var label = new TextBlock { Text = name, FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(0x56, 0x60, 0x6C)), Margin = new Thickness(8, 6, 0, 0), IsHitTestVisible = false };
-            var grid = new Grid { Children = { _view, label } };
+            var label = new TextBlock { Text = name, FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(0x56, 0x60, 0x6C)), Margin = new Thickness(8, name == "TOP" ? 30 : 6, 0, 0), IsHitTestVisible = false };
+            var triad = new AxisTriad { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(4, 0, 0, 4), Width = 70, Height = 70 };
+            triad.SetOrientation(_look, _up);
+            var grid = new Grid { Children = { _view, label, triad } };
             Host = new Border { BorderBrush = new SolidColorBrush(Color.FromRgb(0xD5, 0xDA, 0xE0)), BorderThickness = new Thickness(0, 0, 1, 1), Child = grid, Visibility = Visibility.Collapsed };
         }
 
@@ -513,6 +522,7 @@ public sealed class SolidViewport3D : Grid
         _camera.UpDirection = _up;
         _camera.NearPlaneDistance = Math.Max(0.05, _distance / 2000);
         _headlight.Direction = _look - 0.35 * _up + 0.2 * Right;
+        _triad.SetOrientation(_look, _up);
     }
 
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
@@ -719,6 +729,16 @@ public sealed class SolidViewport3D : Grid
     public static readonly DependencyProperty CutOffsetProperty = Reg(nameof(CutOffset), typeof(double), 0.0, false);
     public static readonly DependencyProperty ArrowSpacingProperty = Reg(nameof(ArrowSpacing), typeof(double), 1.6, false);
     public static readonly DependencyProperty ArrowScaleProperty = Reg(nameof(ArrowScale), typeof(double), 1.0, false);
+    public static readonly DependencyProperty ClipLowProperty = DependencyProperty.Register(nameof(ClipLow), typeof(double), typeof(SolidViewport3D),
+        new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, (d, _) => ((SolidViewport3D)d).Rebuild()));
+    public static readonly DependencyProperty ClipHighProperty = DependencyProperty.Register(nameof(ClipHigh), typeof(double), typeof(SolidViewport3D),
+        new FrameworkPropertyMetadata(1.0, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, (d, _) => ((SolidViewport3D)d).Rebuild()));
+
+    /// <summary>Iso-clip: lower end of the visible range (fraction of the colour range); set by dragging the legend.</summary>
+    public double ClipLow { get => (double)GetValue(ClipLowProperty); set => SetValue(ClipLowProperty, value); }
+
+    /// <summary>Iso-clip: upper end of the visible range (fraction of the colour range).</summary>
+    public double ClipHigh { get => (double)GetValue(ClipHighProperty); set => SetValue(ClipHighProperty, value); }
 
     public bool PartVisible { get => (bool)GetValue(PartVisibleProperty); set => SetValue(PartVisibleProperty, value); }
 
@@ -797,7 +817,15 @@ public sealed class SolidViewport3D : Grid
             if (PartVisible)
             {
                 var t = field && !arrows ? Normalised(s) : new double[s.Mesh.NodeCount];
-                var g = BuildPart(s, t, copies, keep);
+                Func<int, bool>? visible = null;
+                if (field && !arrows && (ClipLow > 0 || ClipHigh < 1) && RangeMax > RangeMin)
+                {
+                    var vals = s.Field(Field);
+                    double a0 = RangeMin, span = RangeMax - RangeMin, lo = ClipLow, hi = ClipHigh;
+                    visible = e => (vals[e] - a0) / span >= lo - 1e-9 && (vals[e] - a0) / span <= hi + 1e-9;
+                }
+
+                var g = BuildPart(s, t, copies, keep, visible);
                 double opacity = arrows ? Math.Min(PartOpacity, 0.25) : PartOpacity;
                 var baseMat = arrows ? _ghostMaterial : field ? _fieldMaterial : _plainMaterial;
                 var mat = arrows ? baseMat : Translucent(baseMat, opacity);
@@ -898,7 +926,7 @@ public sealed class SolidViewport3D : Grid
     /// Outer faces get smooth normals and the contour values; faces exposed by the cut (or a symmetry plane whose
     /// mirror tet was cut away) are flat sections. Mirrored copies reverse the winding.
     /// </summary>
-    private static MeshGeometry3D BuildPart(Snapshot3D s, double[] t, (int Sx, int Sy)[] copies, Func<double, double, bool> keep)
+    private static MeshGeometry3D BuildPart(Snapshot3D s, double[] t, (int Sx, int Sy)[] copies, Func<double, double, bool> keep, Func<int, bool>? visible = null)
     {
         var mesh = s.Mesh;
         var tets = mesh.Tets;
@@ -924,7 +952,7 @@ public sealed class SolidViewport3D : Grid
             cy[e] = 0.25 * (s.Y[tets[4 * e]] + s.Y[tets[4 * e + 1]] + s.Y[tets[4 * e + 2]] + s.Y[tets[4 * e + 3]]);
         }
 
-        bool Kept(int e, int sx, int sy) => keep(sx * cx[e], sy * cy[e]);
+        bool Kept(int e, int sx, int sy) => keep(sx * cx[e], sy * cy[e]) && (visible?.Invoke(e) ?? true);
         var g = new MeshGeometry3D();
         foreach (var (sx, sy) in copies)
         {

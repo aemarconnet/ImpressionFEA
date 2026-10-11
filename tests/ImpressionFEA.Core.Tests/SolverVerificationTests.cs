@@ -78,6 +78,29 @@ public class SolverVerificationTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void DamagePeaksAtTheBulgingFreeSurface()
+    {
+        // Upset with friction barrels: the free equator stretches in the hoop direction (tension), the core is
+        // compressed. Cockcroft–Latham damage must be ≥ 0, grow with stroke, and peak at the outer surface.
+        var solver = Make(Upset(Symmetry.Axisymmetric, 0.5));
+        StepSnapshot s = solver.InitialSnapshot();
+        while (!solver.IsFinished) s = solver.Advance(CancellationToken.None);
+        var c = s.Mesh.Connectivity;
+        double xMax = s.X.Max();
+        int worst = 0;
+        for (int e = 1; e < s.ElementCount; e++)
+        {
+            if (s.Damage[e] > s.Damage[worst]) worst = e;
+        }
+
+        double cx = 0.25 * (s.X[c[4 * worst]] + s.X[c[4 * worst + 1]] + s.X[c[4 * worst + 2]] + s.X[c[4 * worst + 3]]);
+        output.WriteLine($"max damage {s.Damage[worst]:F3} at r = {cx:F2} mm (outer radius {xMax:F2} mm); min {s.Damage.Min():F4}");
+        Assert.True(s.Damage.Min() >= 0);
+        Assert.InRange(s.Damage[worst], 0.02, 2.0);
+        Assert.True(cx > 0.75 * xMax, "damage should peak near the bulging free surface");
+    }
+
+    [Fact]
     public void FullUpsetConservesVolumeAndReachesShutHeight()
     {
         var solver = Make(Upset(Symmetry.Axisymmetric, 0.3));

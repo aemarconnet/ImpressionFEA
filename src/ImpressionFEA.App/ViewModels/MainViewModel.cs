@@ -59,8 +59,8 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     private readonly DispatcherTimer _timer;
     private readonly Stopwatch _clock = new();
     private readonly List<ForgingSnapshot> _snapshots = [];
-    private readonly double[] _fieldMin = new double[4];
-    private readonly double[] _fieldMax = new double[4];
+    private readonly double[] _fieldMin = new double[Enum.GetValues<ResultField>().Length];
+    private readonly double[] _fieldMax = new double[Enum.GetValues<ResultField>().Length];
     private readonly Dictionary<DieSet3D, double> _cavity3D = [];
     private CancellationTokenSource? _cts;
     private bool _plotDirty;
@@ -112,6 +112,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             new(ResultField.EffectiveStrain, "Effective strain ε̄", "–"),
             new(ResultField.EffectiveStrainRate, "Effective strain rate ε̄̇", "1/s"),
             new(ResultField.MeanStress, "Mean (hydrostatic) stress σm", "MPa"),
+            new(ResultField.Damage, "Damage (Cockcroft–Latham)", "–"),
         ];
         _selectedField = Fields[0];
         _selectedMaterial = Materials[0];
@@ -296,9 +297,9 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     }
 
     /// <summary>Die drawn by the viewports: exactly one of these is non-null.</summary>
-    public DieSet? ActiveDie2D => _analysis3D ? null : _selectedDie;
+    public DieSet? ActiveDie2D => _shown?.Results is { } sr ? sr.Die2D : _analysis3D ? null : _selectedDie;
 
-    public DieSet3D? ActiveDie3D => _analysis3D ? _selectedDie3D : null;
+    public DieSet3D? ActiveDie3D => _shown?.Results is { } sr ? sr.Die3D : _analysis3D ? _selectedDie3D : null;
 
     // ------------------------------------------------------------------ derived info
 
@@ -591,6 +592,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         set
         {
             if (!Set(ref _selectedField, value)) return;
+            ResetClip(); // a clip range belongs to one field
             OnPropertyChanged(nameof(RangeMin));
             OnPropertyChanged(nameof(RangeMax));
             OnPropertyChanged(nameof(FieldTitle));
@@ -769,6 +771,14 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     private void ResetResults()
     {
+        if (_shown is not null)
+        {
+            _shown = null;
+            OnPropertyChanged(nameof(ActiveDie2D));
+            OnPropertyChanged(nameof(ActiveDie3D));
+            OnPropertyChanged(nameof(ShownPartLength));
+        }
+
         _snapshots.Clear();
         _preview = null;
         Array.Fill(_fieldMin, double.MaxValue);
@@ -842,7 +852,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         Array.Fill(_fieldMin, double.MaxValue);
         Array.Fill(_fieldMax, double.MinValue);
         foreach (var s in _snapshots) Accumulate(s);
-        for (int f = 0; f < 4; f++)
+        for (int f = 0; f < _fieldMin.Length; f++)
         {
             if (_fieldMin[f] > _fieldMax[f]) (_fieldMin[f], _fieldMax[f]) = (0, 1);
         }

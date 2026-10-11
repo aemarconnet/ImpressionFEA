@@ -59,6 +59,8 @@ public sealed class ForgingSolver : IForgingStepper
     private double[] _elSig = null!;
     private double[] _elRate = null!;
     private double[] _elMean = null!;
+    private double[] _dmg = null!;
+    private double[] _elDev = null!; // element-average deviatoric stress: r/x, z/y, hoop / out-of-plane, shear (MPa)
     private SymmetricBandMatrix _k = null!;
     private double[] _r = null!;
     private double[] _dv = null!;
@@ -169,6 +171,8 @@ public sealed class ForgingSolver : IForgingStepper
         _vg = new Vec2[_nn];
         _v = new double[_ndof];
         _eps = new double[_ne];
+        _dmg = new double[_ne];
+        _elDev = new double[4 * _ne];
         _contact = new NodeContact[_nn];
         _tan = new Vec2[_nn];
         _nrm = new Vec2[_nn];
@@ -255,6 +259,7 @@ public sealed class ForgingSolver : IForgingStepper
             throw new MeshDistortionException(F($"Mesh distortion at step {StepIndex} (stroke {_gap0 - _gap:F3} mm): {why}. Results up to the previous increment are kept; refine h or reduce Δs."));
 
         for (int e = 0; e < _ne; e++) _eps[e] += _elRate[e] * dt;
+        AccumulateDamage(dt);
         var beforeCapture = ((Vec2[])_x.Clone(), (NodeContact[])_contact.Clone());
         int captured = CaptureFoldOver();
         if (captured > 0 && (MinQuality(_x) <= 0.002 || !Remesh(F($"fold-over, {captured} node(s) laid on die"))))
@@ -563,7 +568,7 @@ public sealed class ForgingSolver : IForgingStepper
         double sigCut = _law.Stress(eps, _rateCut);
         double mu0 = sigCut / _rateCut;
         double mExp = _law.M;
-        double sigSum = 0, rateSum = 0;
+        double sigSum = 0, rateSum = 0, s0Sum = 0, s1Sum = 0, s2Sum = 0, tSum = 0;
         var b0 = _b[0];
         var b1 = _b[1];
         var b2 = _b[2];
@@ -618,6 +623,10 @@ public sealed class ForgingSolver : IForgingStepper
             power += w * sig * rate;
             sigSum += sig;
             rateSum += rate;
+            s0Sum += mu * m0;
+            s1Sum += mu * m1;
+            s2Sum += mu * m2;
+            tSum += mu * m3;
             double wm = w * mu;
             for (int k = 0; k < 8; k++) _re[k] += wm * _g8[k];
             if (!matrix) continue;
@@ -675,7 +684,24 @@ public sealed class ForgingSolver : IForgingStepper
 
         _elSig[e] = sigSum / 4;
         _elRate[e] = rateSum / 4;
+        _elDev[4 * e] = s0Sum / 4;
+        _elDev[4 * e + 1] = s1Sum / 4;
+        _elDev[4 * e + 2] = s2Sum / 4;
+        _elDev[4 * e + 3] = tSum / 4;
         _elMean[e] = _kPen * evol;
+    }
+
+    /// <summary>Normalized Cockcroft–Latham damage increment D += max(σ₁, 0)/σ̄ · ε̄̇ · Δt (σ₁ from the in-plane tensor and the hoop / out-of-plane stress).</summary>
+    private void AccumulateDamage(double dt)
+    {
+        for (int e = 0; e < _ne; e++)
+        {
+            double sig = _elSig[e];
+            if (!(sig > 0) || _elRate[e] <= _rateCut) continue;
+            double m = _elMean[e];
+            double s1 = Principal.Max2D(_elDev[4 * e] + m, _elDev[4 * e + 1] + m, _elDev[4 * e + 3], _elDev[4 * e + 2] + m);
+            if (s1 > 0) _dmg[e] += s1 / sig * _elRate[e] * dt;
+        }
     }
 
     /// <summary>Residual at the converged velocity: element fields, reaction load and tensile contact release.</summary>
@@ -1149,6 +1175,8 @@ public sealed class ForgingSolver : IForgingStepper
         var oldSig = _elSig;
         var oldVg = _vg;
         var newEps = new double[mesh.ElementCount];
+        var newDmg = new double[mesh.ElementCount];
+        var oldDmg = _dmg;
         var newSig = new double[mesh.ElementCount];
         var newRate = new double[mesh.ElementCount];
         var newMean = new double[mesh.ElementCount];
@@ -1159,6 +1187,7 @@ public sealed class ForgingSolver : IForgingStepper
             var cen = 0.25 * (x[mc[4 * e]] + x[mc[4 * e + 1]] + x[mc[4 * e + 2]] + x[mc[4 * e + 3]]);
             int found = locator.Find(cen);
             newEps[e] = found >= 0 ? oldEps[found] : 0;
+            newDmg[e] = found >= 0 ? oldDmg[found] : 0;
             newSig[e] = found >= 0 ? oldSig[found] : _sigRef;
             newRate[e] = found >= 0 ? _elRate[found] : 0;
             newMean[e] = found >= 0 ? _elMean[found] : 0;
@@ -1168,6 +1197,7 @@ public sealed class ForgingSolver : IForgingStepper
 
         Allocate(mesh, x);
         _eps = newEps;
+        _dmg = newDmg;
         _elSig = newSig;
         _elRate = newRate;
         _elMean = newMean;
@@ -1370,12 +1400,14 @@ public sealed class ForgingSolver : IForgingStepper
         bool initial = step == 0;
         var vm = new float[_ne];
         var ep = new float[_ne];
+        var dm = new float[_ne];
         var er = new float[_ne];
         var sm = new float[_ne];
         for (int e = 0; e < _ne; e++)
         {
             vm[e] = initial ? 0f : (float)_elSig[e];
             ep[e] = (float)_eps[e];
+            dm[e] = (float)_dmg[e];
             er[e] = initial ? 0f : (float)_elRate[e];
             sm[e] = initial ? 0f : (float)_elMean[e];
         }
@@ -1395,6 +1427,7 @@ public sealed class ForgingSolver : IForgingStepper
             Y = ys,
             VonMises = vm,
             EffectiveStrain = ep,
+            Damage = dm,
             EffectiveStrainRate = er,
             MeanStress = sm,
             Contact = (NodeContact[])_contact.Clone(),

@@ -403,7 +403,61 @@ public sealed partial class MainViewModel
     /// <summary>Finished runs of this session (newest first); their curves can be overlaid on the chart.</summary>
     public ObservableCollection<RunRecord> Runs { get; } = [];
 
-    public RunRecord? SelectedRun { get => _selectedRun; set => Set(ref _selectedRun, value); }
+    /// <summary>Selecting a run in RUNS shows its results again (viewport, slider, read-outs) for comparison.</summary>
+    public RunRecord? SelectedRun
+    {
+        get => _selectedRun;
+        set
+        {
+            if (!Set(ref _selectedRun, value)) return;
+            if (value is { CanShow: true } && value != _shown && !IsRunning && !IsSweeping && !IsExporting) ShowRun(value);
+            SyncOverlays();
+        }
+    }
+
+    /// <summary>Number of runs whose full results are kept in memory for re-display.</summary>
+    private const int KeepResults = 10;
+
+    /// <summary>The run whose results are in the viewport (null: none / inputs changed since).</summary>
+    private RunRecord? _shown;
+
+    /// <summary>Puts a stored run back into the viewport, slider, chart and read-outs. The inputs on the left are not changed.</summary>
+    private void ShowRun(RunRecord run)
+    {
+        if (run.Results is not { } r) return;
+        StopPlayback();
+        _shown = run;
+        CurrentRun = run;
+        _snapshots.Clear();
+        _snapshots.AddRange(r.Snapshots);
+        _totalStroke = r.Snapshots.Count > 0 ? r.Snapshots[^1].Stroke : 0;
+        _preview = null;
+        if (r.Die3D is not null && !_is3D)
+        {
+            _is3D = true;
+            OnPropertyChanged(nameof(Is3D));
+            OnPropertyChanged(nameof(Is2D));
+        }
+
+        ViewBounds = r.ViewBounds;
+        Bounds3D = r.Bounds3D;
+        foreach (var n in new[] { nameof(ActiveDie2D), nameof(ActiveDie3D), nameof(ShownPartLength), nameof(ScrubMaximum), nameof(HasResults), nameof(CanScrub) })
+            OnPropertyChanged(n);
+        RecomputeRanges();
+        RebuildSeries();
+        _scrubIndex = -1;
+        ScrubIndex = ScrubMaximum;
+        State = run.Status switch
+        {
+            SimulationStatus.Completed => RunState.Completed,
+            SimulationStatus.Aborted => RunState.Aborted,
+            _ => RunState.Failed,
+        };
+        StatusText = $"Showing {run.Label} — {run.Summary}. Pick another run to compare; inputs on the left are unchanged.";
+    }
+
+    /// <summary>Out-of-plane length used to draw the shown 2D plane-strain result.</summary>
+    public double ShownPartLength => _shown?.Results?.PartLength ?? _billetLength;
 
     public bool HasRuns => Runs.Count > 0;
 
@@ -412,9 +466,14 @@ public sealed partial class MainViewModel
         if (result.Snapshots.Count == 0) return;
         int n = ++_runCounter;
         string label = _runLabelOverride ?? DefaultLabel(settings);
-        var rec = new RunRecord(n, F($"#{n} {label}"), settings, result.Snapshots.Select(TelemetryRow.From).ToList(), result.Status, elapsed, RunPalette[(n - 1) % RunPalette.Length]);
+        var rec = new RunRecord(n, F($"#{n} {label}"), settings, result.Snapshots.Select(TelemetryRow.From).ToList(), result.Status, elapsed, RunPalette[(n - 1) % RunPalette.Length])
+        {
+            Results = new RunResults(result.Snapshots.ToList(), _analysis3D ? null : _selectedDie, _analysis3D ? _selectedDie3D : null, ViewBounds, Bounds3D, _billetLength),
+        };
         rec.ShownChanged += (_, _) => SyncOverlays();
+        _shown = rec; // already in the viewport
         Runs.Insert(0, rec);
+        for (int i = KeepResults; i < Runs.Count; i++) Runs[i].Results = null; // bound memory
         SelectedRun = rec;
         CurrentRun = rec;
         SyncOverlays();
@@ -434,6 +493,7 @@ public sealed partial class MainViewModel
         var keep = new[] { (OxyPlot.Series.Series)_loadSeries, _fillSeries };
         foreach (var s in LoadPlot.Series.Except(keep).ToList()) LoadPlot.Series.Remove(s);
         int i = 0;
+        foreach (var r in Runs) r.SetHighlight(r == _selectedRun);
         foreach (var r in Runs.Reverse().Where(r => r.IsShown))
         {
             LoadPlot.Series.Insert(i++, r.LoadSeries);

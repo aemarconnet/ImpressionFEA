@@ -7,7 +7,35 @@
 Windows desktop application (WPF, .NET 10) for closed-die impression forging simulation with built-in native
 finite-element solvers: a fast **2D** solver (axisymmetric / plane strain) and a full **3D** solver (tetrahedra) with
 GPU (NVIDIA cuDSS) or multithreaded CPU (Intel MKL) acceleration. No external solver is needed. 3D jobs can come
-from the built-in die presets or from a **STEP assembly of three bodies** (bottom die, workpiece, top die).
+from the built-in die presets, from a **STEP assembly of three bodies** (bottom die, workpiece, top die), or from a
+**STEP file of the two dies only** with a workpiece you define in the app.
+
+## Download
+
+Every [release](https://github.com/aemarconnet/ImpressionFEA/releases) has two Windows x64 builds. Both are
+self-contained (no .NET install), include Intel MKL, STEP import, the samples and demos:
+
+| Build | Contents | Use it when |
+|---|---|---|
+| `…-win-x64-full.zip` | + NVIDIA GPU solver (cuDSS, CUDA 12 runtime, cuBLAS) | you have an NVIDIA GPU (driver R525+) |
+| `…-win-x64-light.zip` | CPU only, much smaller | no NVIDIA GPU, or a smaller download; `Get-GpuSolver.ps1` adds the GPU libraries later |
+
+## Assumptions
+
+Every report repeats these at the top:
+
+* **Adiabatic walls**: no heat is lost from the workpiece into the dies (no die chill).
+* **No heat generated** by plastic deformation or friction.
+* Hence **isothermal**: the workpiece stays at the set forging temperature throughout the stroke.
+* **Rigid-viscoplastic**, incompressible, isotropic material (von Mises flow, `σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ`): no
+  elasticity, so no springback and no residual stresses.
+* **Rigid dies**: no die deflection, wear or temperature change.
+* **Constant shear friction** `τ = m·k` over the whole contact.
+* **Quasi-static** forming at constant ram speed: inertia and gravity are neglected.
+* Material data are representative handbook values; load and fill are engineering estimates for design comparison,
+  not certified predictions.
+
+## Build from source
 
 ```
 powershell -ExecutionPolicy Bypass -File native/fetch-cuda.ps1   # optional: GPU solver libraries (~880 MB)
@@ -43,11 +71,12 @@ src/ImpressionFEA.App/             WPF dashboard
 tests/ImpressionFEA.Core.Tests/    analytical benchmarks, numerics, engine error paths, preset runs
 ```
 
-## STEP import (3 bodies)
+## STEP import (3 bodies, or 2 dies + your workpiece)
 
 **Import STEP…** (configuration panel or bottom bar) reads a STEP file through Open CASCADE (`native/cad`):
 
-1. The file must contain exactly **three solid bodies**. Units are converted to mm.
+1. The file must contain **three solid bodies** (bottom die, workpiece, top die) or **two** (the dies only; see
+   *Die-only import* below). Units are converted to mm.
 2. The body whose centre of gravity lies **between** the other two is the deforming **workpiece**. Assign its
    material in the Material panel. The two outer bodies are **rigid dies** (no internal stresses).
 3. You pick which outer body is the **top (moving) die**. The press axis runs through the two die centres of
@@ -63,6 +92,15 @@ To enable STEP import, download the OCCT 8.0.1 Windows packages (`opencascade-re
 `3rdparty-vc14-64.zip`) from the Open CASCADE GitHub releases. Extract them as described at the top of
 `native/cad/build-cad.ps1`, then run that script with Visual Studio 2022 C++ tools installed. Without it, the app
 runs normally and the Import button explains that STEP support is missing.
+
+### Die-only import
+
+A STEP file with just the **two dies** is accepted too. After you pick the moving die, the Basic tab shows a
+**Workpiece** editor: shape (round bar on end, round bar lying flat, rectangular block), diameter / length or block
+sizes, rotation about the press axis and plan position X / Y. The preview updates live, the workpiece is always
+dropped onto the bottom die, and **Size to cavity +10 %** sets the length for the usual flash allowance. The workpiece
+is saved with the setup and kept on re-import. Multi-run can sweep the workpiece position (`WorkpieceOffsetX`) to
+study off-centre placement. Demo 7 walks through it with the gear-blank dies (`samples/sample_gear_dies_only.step`).
 
 ### Re-import (CAD loop)
 
@@ -88,9 +126,48 @@ job is selected, the app watches the file: when you export again from CAD, a yel
   summary. The original value is restored afterwards, and Abort stops the batch.
 * **Demos**: curated, self-describing examples in `samples/demos/*.json`. Each has a setup, step-by-step
   instructions shown in the app, and a suggested multi-run. Instructors can add or edit demos without rebuilding
-  (Demos tab → Reload). The six shipped demos cover an upset benchmark, the temperature window, ram speed / strain
-  rate sensitivity, 3D hex-flange fill from CAD, a material comparison including plasticine, and the CAD
-  re-import loop.
+  (Demos tab → Reload). The seven shipped demos cover an upset benchmark, the temperature window, ram speed / strain
+  rate sensitivity, 3D hex-flange fill from CAD, a material comparison including plasticine, the CAD re-import
+  loop, and die-only import with a user-defined workpiece. Demo values are written in mm, °C and mm/s.
+* **Compare runs**: click a run in RUNS to bring its full results back into the viewport, slider and read-outs (the
+  10 most recent runs keep full results; older ones keep their telemetry). Its curve is drawn bold on the chart.
+  **Reset** clears all runs, overlays, results and the log for an unrelated job.
+* **Units**: US (in, ksi, tonf, °F; lengths and stresses to 3 decimals) is the default; Metric (mm, MPa, t, °C; 2
+  decimals) is one click away in the header. The solver, setups and CSV files always use mm, MPa, t and °C.
+* **Esc** aborts whatever is running: a solve, a multi-run, or a video / report export.
+* Save and export dialogs remember the last folder used for each kind of file.
+
+## Results and views
+
+* **Fields**: von Mises stress σ̄, effective strain ε̄, effective strain rate, mean (hydrostatic) stress σm, and
+  **damage** (normalized Cockcroft–Latham, `D = ∫ max(σ₁, 0)/σ̄ dε̄`). Damage measures the risk of ductile tearing:
+  only tension accumulates it, compression does not. Compare it with the critical value for the alloy and
+  temperature (typically about 0.3–0.6 for hot steels, from tests); regions approaching it are where cracks start,
+  usually at free surfaces that bulge or stretch.
+* **Iso-clipping**: drag the top or bottom handle of any colour bar to hide elements outside a value range (the
+  exposed faces show the interior); double-click the bar to reset.
+* **View ▾** (live): workpiece visibility and opacity, top and bottom die visibility and opacity (defaults: top 15 %,
+  bottom opaque), lighting (Shaded by default; Uniform = no shading, colours exactly as the legend), section plane
+  (X or Y, offset, flip), element edges, die contact (amber = bottom die, magenta = top die), colour map on/off
+  (plain deforming solid), and **flow arrows** (material velocity, with density and size sliders; the part becomes a
+  ghost in 3D so interior arrows are visible). **Four views** shows Top, Front and Right (orthographic) with the
+  interactive isometric view top-right. Every 3D view has an XYZ triad (X red, Y green, Z blue; Z = press axis).
+* **Playback**: first / previous / play-pause / next / last, loop and speed beside the increment slider.
+* **Export ▾**: PNG image; **WebM video** of the ram descent (view only, view + telemetry, or the whole window;
+  optionally with the telemetry CSV) via FFmpeg if installed (`winget install BtbN.FFmpeg.LGPL.Shared.9.0`), else a
+  PNG frame sequence; **deformed part** as binary STL or PLY with result colours (full part: symmetric 3D models are
+  mirrored, 2D sections revolved or extruded); and a **report**: a folder with a self-contained `report.html`
+  (assumptions, setup, key results, chart, every field at die closure, descent stages, telemetry table, run
+  comparison), plus `telemetry.csv`, the setup, the solver log, STL / PLY and optionally the video.
+
+### Mesh terminology
+
+* **2D**: 4-node **quadrilaterals** (Q4). The remesher triangulates the outline (Delaunay) and splits every
+  triangle into three quadrilaterals, so the mesh mixes quad shapes around shared triangle centres.
+* **3D**: 4-node linear **tetrahedra**. On the surface (and on section planes) you see their triangular faces.
+  Because the mesher fills space on a body-centred cubic lattice, the surface triangles usually appear in groups of
+  four around a shared vertex. That looks like small square pyramids (four corners plus an apex, five vertices),
+  but each is four triangular faces of four different tetrahedra.
 
 ## Physics
 
@@ -188,11 +265,14 @@ input deck, stream stdout to `ISimulationObserver.OnLog`, and parse the exported
 Isothermal (no die chill or heat generation), rigid dies, constant shear friction. Imported models run as full
 models; automatic symmetry detection is not implemented yet. 3D runs take from tens of seconds to minutes and
 are limited by the node budget (12 k by default, adjustable under Advanced). Sharp CAD die edges are handled with
-small, bounded corner penetrations; fillets on the dies give cleaner results. Load and fill are engineering estimates, not certified predictions.
+small, bounded corner penetrations; fillets on the dies give cleaner results. When a wide flash gets thinner than
+about one element (h) in the last millimetres of the stroke, the 3D solution loses volume (several % in the sample
+hex flange); a finer mesh or thin-flash refinement (Advanced) reduces it at the cost of run time. Load and fill are
+engineering estimates, not certified predictions.
 
 ## Headless capture
 
-`ImpressionFEA.App.exe --capture out.png [--solve] [--die N] [--3d] [--analysis3d --die3d N] [--import file.step
+`ImpressionFEA.App.exe --capture out.png [--solve] [--die N] [--3d] [--analysis3d --die3d N] [--set Property=Value] [--show-run N] [--import file.step
 [--replace-with other.step]] [--demo N [--sweep]] [--tab N]` renders the dashboard to a PNG and exits. It can run
 after a full solve, a demo's multi-run, or a re-import of a changed file, which makes it useful as a smoke test.
 

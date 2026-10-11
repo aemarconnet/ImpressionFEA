@@ -2,10 +2,10 @@
   // Die-only import: the STEP file holds just the two gear-blank dies. The workpiece is defined in the app.
   // Workpiece sizes and the sweep values below are in mm (the app converts them to the selected units).
   "title": "7 · Die-only import: size, orient and place your own workpiece",
-  "level": "Intermediate · 3D · STEP import (dies only) · ~1 min per run",
+  "level": "Intermediate · 3D · STEP import (dies only) · a few minutes per run",
   "summary": "Import only the gear-blank dies, then design the workpiece yourself: round bar or block, on end or lying flat, centred or off-centre.",
   "instructions": [
-    "1. The STEP file contains two bodies, the gear-blank dies, so the app asks for the moving die and then lets you define the workpiece. It is pre-set to a Ø56 × 81 mm bar standing on end (about 80 % of the cavity volume).",
+    "1. The STEP file contains two bodies, the gear-blank dies, so the app asks for the moving die and then lets you define the workpiece. It is pre-set to a Ø56 × 81 mm bar standing on end (about 80 % of the cavity volume). Runs take a few minutes: off-centre and flat workpieces trigger extra local refinement.",
     "2. Basic tab → Workpiece: press 'Size to cavity +10 %' to give the bar the usual flash allowance. The preview updates as you type; the bar is always dropped onto the bottom die.",
     "3. Press Solve and note peak load and fill. Then try a HorizontalBar (rotate it with 'Rotation about press axis') and a Block, and compare the runs in RUNS: the same volume, but very different flow and flash.",
     "4. Placement matters: set Position X to 5 or 10 mm and solve again. Turn on View ▾ → Flow arrows and Die contact to watch the hub fill late on one side and the flash run unevenly.",

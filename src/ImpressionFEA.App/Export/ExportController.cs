@@ -169,6 +169,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
         ResultField.VonMisesStress => "von_mises_MPa",
         ResultField.EffectiveStrain => "effective_strain",
         ResultField.EffectiveStrainRate => "effective_strain_rate_1_s",
+        ResultField.Damage => "damage_cockcroft_latham",
         _ => "mean_stress_MPa",
     };
 

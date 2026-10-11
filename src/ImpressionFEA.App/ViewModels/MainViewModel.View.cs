@@ -47,6 +47,22 @@ public sealed partial class MainViewModel
     /// <summary>Top / Isometric / Front / Right at once (3D).</summary>
     public bool QuadView { get => _quadView; set => Set(ref _quadView, value); }
 
+    // ---------------------------------------------------------------- iso-clipping (drag the legend)
+
+    private double _clipLow;
+    private double _clipHigh = 1;
+
+    /// <summary>Visible field range, as fractions of the colour range; elements outside are hidden.</summary>
+    public double ClipLow { get => _clipLow; set => Set(ref _clipLow, Math.Clamp(value, 0, 1)); }
+
+    public double ClipHigh { get => _clipHigh; set => Set(ref _clipHigh, Math.Clamp(value, 0, 1)); }
+
+    public void ResetClip()
+    {
+        ClipLow = 0;
+        ClipHigh = 1;
+    }
+
     // ---------------------------------------------------------------- cut-away
 
     private CutPlaneAxis _cutAxis = CutPlaneAxis.Y;

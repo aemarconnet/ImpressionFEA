@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Windows.Input;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -26,6 +27,71 @@ public sealed class FieldViewport : FrameworkElement
     public static readonly DependencyProperty ShowFieldProperty = Reg(nameof(ShowField), typeof(bool), true);
     public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false);
     public static readonly DependencyProperty ArrowSpacingProperty = Reg(nameof(ArrowSpacing), typeof(double), 1.6);
+    public static readonly DependencyProperty ClipLowProperty = DependencyProperty.Register(nameof(ClipLow), typeof(double), typeof(FieldViewport),
+        new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+    public static readonly DependencyProperty ClipHighProperty = DependencyProperty.Register(nameof(ClipHigh), typeof(double), typeof(FieldViewport),
+        new FrameworkPropertyMetadata(1.0, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
+    /// <summary>Iso-clip: lower end of the visible range (fraction of the colour range).</summary>
+    public double ClipLow { get => (double)GetValue(ClipLowProperty); set => SetValue(ClipLowProperty, value); }
+
+    /// <summary>Iso-clip: upper end of the visible range (fraction of the colour range).</summary>
+    public double ClipHigh { get => (double)GetValue(ClipHighProperty); set => SetValue(ClipHighProperty, value); }
+
+    private Rect _legend = Rect.Empty;
+    private int _clipDrag;
+
+    /// <summary>Element shown under the iso-clip range (always true without clipping or without a field).</summary>
+    private Func<int, bool> ClipFilter(StepSnapshot s)
+    {
+        double lo = ClipLow, hi = ClipHigh;
+        if (!ShowField || (lo <= 0 && hi >= 1)) return _ => true;
+        var v = s.Field(Field);
+        double a = RangeMin, span = RangeMax - RangeMin;
+        if (!(span > 0)) return _ => true;
+        return e => (v[e] - a) / span >= lo - 1e-9 && (v[e] - a) / span <= hi + 1e-9;
+    }
+
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        var pt = e.GetPosition(this);
+        if (_legend.IsEmpty || !new Rect(_legend.X - 10, _legend.Y - 8, _legend.Width + 20, _legend.Height + 16).Contains(pt)) return;
+        e.Handled = true;
+        if (e.ClickCount == 2)
+        {
+            ClipLow = 0;
+            ClipHigh = 1;
+            return;
+        }
+
+        var (h, f) = ColorBar.Hit(_legend, pt.Y, ClipLow, ClipHigh);
+        _clipDrag = h;
+        ApplyClip(f);
+        CaptureMouse();
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        var pt = e.GetPosition(this);
+        Cursor = !_legend.IsEmpty && new Rect(_legend.X - 10, _legend.Y - 8, _legend.Width + 20, _legend.Height + 16).Contains(pt) ? Cursors.SizeNS : null;
+        if (_clipDrag == 0) return;
+        ApplyClip(Math.Clamp((_legend.Bottom - pt.Y) / _legend.Height, 0, 1));
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        _clipDrag = 0;
+        ReleaseMouseCapture();
+    }
+
+    private void ApplyClip(double f)
+    {
+        double snapped = Math.Round(f * Bands) / Bands;
+        if (_clipDrag == 1) ClipLow = Math.Min(snapped, ClipHigh - 1.0 / Bands);
+        else ClipHigh = Math.Max(snapped, ClipLow + 1.0 / Bands);
+    }
     public static readonly DependencyProperty ArrowScaleProperty = Reg(nameof(ArrowScale), typeof(double), 1.0);
 
     /// <summary>Arrow spacing (1.6 = default density; smaller = denser).</summary>
@@ -174,7 +240,8 @@ public sealed class FieldViewport : FrameworkElement
         Text(dc, FieldTitle, new Point(12, 7), 12, UiFace, Ink);
         if (vmax > 0) Text(dc, "Flow arrows: material velocity, longest = " + ImpressionFEA.App.Infrastructure.Units.Current.Speedf(vmax), new Point(12, 24), 11, UiFace, Ink);
         DrawScaleBar(dc, scale, new Point(14, h - 18));
-        if (legend) DrawColorBar(dc, new Rect(w - ColorBarWidth + 6, 34, 16, Math.Min(320, h - 70)));
+        _legend = legend ? new Rect(w - ColorBarWidth + 6, 34, 16, Math.Min(320, h - 70)) : Rect.Empty;
+        if (legend) DrawColorBar(dc, _legend);
     }
 
     private void DrawBillet(DrawingContext dc, StepSnapshot s, Func<double, double, Point> P, double w, double h)
@@ -196,10 +263,12 @@ public sealed class FieldViewport : FrameworkElement
             double lo = RangeMin, hi = RangeMax;
             double inv = hi > lo ? 1.0 / (hi - lo) : 0;
             double sx = dpi.DpiScaleX, sy = dpi.DpiScaleY;
+            var visible = ClipFilter(s);
             foreach (double mirror in Mirror ? new[] { 1.0, -1.0 } : [1.0])
             {
                 for (int e = 0; e < mesh.ElementCount; e++)
                 {
+                    if (!visible(e)) continue;
                     int a = conn[4 * e], b = conn[4 * e + 1], c = conn[4 * e + 2], d = conn[4 * e + 3];
                     var pa = P(mirror * s.X[a], s.Y[a]);
                     var pb = P(mirror * s.X[b], s.Y[b]);
@@ -231,12 +300,14 @@ public sealed class FieldViewport : FrameworkElement
         if (ShowMesh)
         {
             var geo = new StreamGeometry();
+            var meshVisible = ClipFilter(s);
             using (var g = geo.Open())
             {
                 foreach (double mirror in Mirror ? new[] { 1.0, -1.0 } : [1.0])
                 {
                     for (int e = 0; e < mesh.ElementCount; e++)
                     {
+                        if (!meshVisible(e)) continue;
                         g.BeginFigure(P(mirror * s.X[conn[4 * e]], s.Y[conn[4 * e]]), false, true);
                         for (int a = 1; a < 4; a++) g.LineTo(P(mirror * s.X[conn[4 * e + a]], s.Y[conn[4 * e + a]]), true, false);
                     }
@@ -308,6 +379,7 @@ public sealed class FieldViewport : FrameworkElement
             dc.DrawRectangle(brush, null, new Rect(r.Left, r.Bottom - (i + 1) * bandH, r.Width, bandH + 0.5));
         }
 
+        ColorBar.DrawClip(dc, r, ClipLow, ClipHigh);
         dc.DrawRectangle(null, OutlinePen, r);
         for (int i = 0; i <= Bands; i += 2)
         {

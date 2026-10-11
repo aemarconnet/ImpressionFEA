@@ -5,6 +5,15 @@ using OxyPlot.Series;
 
 namespace ImpressionFEA.App.ViewModels;
 
+/// <summary>Everything needed to show a finished run again: its increments, dies and view framing.</summary>
+public sealed record RunResults(
+    IReadOnlyList<ForgingSnapshot> Snapshots,
+    ImpressionFEA.Core.Geometry.DieSet? Die2D,
+    ImpressionFEA.Core.ThreeD.DieSet3D? Die3D,
+    System.Windows.Rect ViewBounds,
+    System.Windows.Media.Media3D.Rect3D Bounds3D,
+    double PartLength);
+
 /// <summary>A finished (or failed) run kept in the session history: its setup, telemetry and chart overlay.</summary>
 public sealed class RunRecord : ObservableObject
 {
@@ -52,6 +61,31 @@ public sealed class RunRecord : ObservableObject
     public TimeSpan Elapsed { get; }
 
     public OxyColor Color { get; }
+
+    private RunResults? _results;
+
+    /// <summary>Full results for re-display (kept for the most recent runs only; null when released to save memory).</summary>
+    public RunResults? Results
+    {
+        get => _results;
+        set
+        {
+            if (!Set(ref _results, value)) return;
+            OnPropertyChanged(nameof(CanShow));
+            OnPropertyChanged(nameof(Tip));
+        }
+    }
+
+    public bool CanShow => _results is not null;
+
+    public string Tip => Label + (CanShow ? "  ·  click to show this run's results again" : "  ·  telemetry only (full results released to save memory)");
+
+    /// <summary>Draws this run's curves bold (the run being looked at).</summary>
+    public void SetHighlight(bool on)
+    {
+        LoadSeries.StrokeThickness = on ? 3.2 : 1.6;
+        FillSeries.StrokeThickness = on ? 2.0 : 1.0;
+    }
 
     public System.Windows.Media.Brush Swatch => new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(Color.R, Color.G, Color.B));
 

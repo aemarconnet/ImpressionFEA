@@ -80,7 +80,7 @@ public sealed partial class MainViewModel
     /// <summary>Increments of the current result set (for frame-by-frame export).</summary>
     public IReadOnlyList<ForgingSnapshot> Snapshots => _snapshots;
 
-    public bool IsPlaneStrainResult => !_analysis3D && _selectedDie.IsPlaneStrain;
+    public bool IsPlaneStrainResult => ActiveDie2D?.IsPlaneStrain == true;
 
     public string GeometryName => CurrentSource is { } src ? System.IO.Path.GetFileName(src.Path) : _analysis3D ? _selectedDie3D.Name : _selectedDie.Name;
 
@@ -88,9 +88,9 @@ public sealed partial class MainViewModel
 
     public string MaterialSummary => MaterialText;
 
-    public ImpressionFEA.Core.ThreeD.Symmetry3D ResultSymmetry => _analysis3D ? _selectedDie3D.Symmetry : ImpressionFEA.Core.ThreeD.Symmetry3D.None;
+    public ImpressionFEA.Core.ThreeD.Symmetry3D ResultSymmetry => ActiveDie3D?.Symmetry ?? ImpressionFEA.Core.ThreeD.Symmetry3D.None;
 
-    public double PartLength => _billetLength;
+    public double PartLength => ShownPartLength;
 
     private void AppendRunLog(string text)
     {

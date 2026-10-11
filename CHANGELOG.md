@@ -3,6 +3,25 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
+## 0.6.0
+- Results: **damage** field (normalized Cockcroft–Latham, ductile tearing risk) in 2D and 3D; nodal **flow
+  velocity** stored per increment with 2D and 3D arrow plots.
+- Views: **View ▾** panel (workpiece / top die / bottom die visibility and opacity, lighting, section plane with
+  offset and flip, edges, die-contact highlight, colour map on/off, flow-arrow density and size; all live);
+  **four-view layout** (Top, Front, Right + isometric); XYZ triad in every 3D view; **iso-clipping** by dragging
+  the colour bar; **playback** controls (play / pause / step / loop / speed); F fits the visible bodies.
+  New 3D defaults: Shaded lighting, no section, top die 15 % opaque, bottom die opaque.
+- Exports: **WebM video** of the ram descent (FFmpeg) with optional telemetry, **report generator** (self-contained
+  HTML with assumptions, setup, results, figures, telemetry, run comparison + CSV, setup, log, STL / PLY, video),
+  deformed part as **STL / PLY**.
+- **Die-only STEP import** (2 bodies) with a user-defined workpiece (shape, size, rotation, position); demo 7.
+- **Compare runs**: click a run to show its full results again; **Reset** clears runs and telemetry.
+- **US / Metric units** (US default: in, ksi, tonf, °F to 3 decimals; metric: mm, MPa, t, °C to 2 decimals).
+- **Esc** aborts solves, multi-runs and exports; dialogs remember their last folders; resizable panels with drag
+  handles (the button bar keeps its height; the handle above it resizes the log).
+- Hex-flange demo fixed: close-fit shank pocket and +10 % bar, fills to 99.9 %.
+- Releases ship as two builds: **full** (with NVIDIA GPU libraries) and **light** (CPU only).
+
 ## 0.5.0
 - 3D robustness: quality-aware contact placement at sharp CAD die edges, interior-node smoothing, auto
   time-stepping (keep the reduced increment, grow back), recovery ladder with local refinement (LEPP bisection);

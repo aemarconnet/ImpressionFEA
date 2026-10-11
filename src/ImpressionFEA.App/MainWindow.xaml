@@ -404,15 +404,16 @@
                                      Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                      RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
                                      ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}" ShowVelocity="{Binding ShowVelocity}" Units="{Binding SelectedUnits}"
-                                     ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}"
+                                     ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}" ClipLow="{Binding ClipLow}" ClipHigh="{Binding ClipHigh}"
                                      ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}" />
                     <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
                                        PartVisible="{Binding PartVisible}" PartOpacity="{Binding PartOpacity}" BottomDieVisible="{Binding BottomDieVisible}"
                                        TopDieVisible="{Binding TopDieVisible}" BottomDieOpacity="{Binding BottomDieOpacity}" TopDieOpacity="{Binding TopDieOpacity}" QuadView="{Binding QuadView}" CutAxis="{Binding CutAxis}" CutFlip="{Binding CutFlip}"
-                                       CutOffset="{Binding CutOffset}" ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}" Die="{Binding ActiveDie2D}" Die3D="{Binding ActiveDie3D}" Bounds3D="{Binding Bounds3D}"
+                                       CutOffset="{Binding CutOffset}" ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}"
+                                       ClipLow="{Binding ClipLow}" ClipHigh="{Binding ClipHigh}" Die="{Binding ActiveDie2D}" Die3D="{Binding ActiveDie3D}" Bounds3D="{Binding Bounds3D}"
                                        Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                        RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
-                                       CutAway="{Binding CutAway}" ShowDies="{Binding ShowDies}" PartLength="{Binding BilletLength}"
+                                       CutAway="{Binding CutAway}" ShowDies="{Binding ShowDies}" PartLength="{Binding ShownPartLength}"
                                        ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is3D, Converter={StaticResource BoolToVis}}" />
                     <Border Grid.Row="3" Background="{StaticResource PanelBorder}" />
                     <Grid Grid.Row="4" Margin="10,6,10,8">
@@ -524,7 +525,7 @@
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <DockPanel ToolTip="{Binding Label}">
+                                        <DockPanel ToolTip="{Binding Tip}" Background="Transparent">
                                             <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsShown}" VerticalAlignment="Center" ToolTip="Overlay on the chart" />
                                             <Rectangle DockPanel.Dock="Left" Width="12" Height="3" Fill="{Binding Swatch}" Margin="2,0,6,0" VerticalAlignment="Center" />
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" FontFamily="{StaticResource Mono}" FontSize="10.5" Margin="6,0,0,0"

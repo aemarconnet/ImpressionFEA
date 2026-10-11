@@ -72,6 +72,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     private double[] _elSig = null!;
     private double[] _elRate = null!;
     private double[] _elMean = null!;
+    private double[] _dmg = null!;
+    private double[] _elDev = null!; // deviatoric stress per element: xx, yy, zz, xy, yz, zx (MPa)
     private double[] _grad = null!;
     private double[] _vol = null!;
 
@@ -251,6 +253,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         _x = x;
         _vg = new Vec3[_nn];
         _eps = new double[_ne];
+        _dmg = new double[_ne];
+        _elDev = new double[6 * _ne];
         _contact = new NodeContact[_nn];
         _ax0 = new Vec3[_nn];
         _ax1 = new Vec3[_nn];
@@ -433,6 +437,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
 
         for (int e = 0; e < _ne; e++) _eps[e] += _elRate[e] * dt;
+        AccumulateDamage(dt);
         _warm = true;
         var snap = MakeSnapshot(StepIndex, load, iterations);
         _log(F($"step {StepIndex,4} | stroke {snap.Stroke,8:F3} mm | it {iterations,2} | load {load / 9806.65,9:F2} t (reaction {reaction / 9806.65:F2} t) | fill {snap.FillPercent,6:F2} % | ΔV {snap.VolumeChangePercent,6:F3} % | {_ne} tets | {sw.Elapsed.TotalMilliseconds,7:F0} ms"));
@@ -1066,6 +1071,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         for (int k = 0; k < 12; k++) _re[k] = vol * mu * _g[k];
         _elSig[e] = sig;
         _elRate[e] = rate;
+        for (int i = 0; i < 6; i++) _elDev[6 * e + i] = mu * me[i];
         if (!matrix) return;
 
         for (int k = 0; k < 12; k++)
@@ -1437,6 +1443,23 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         return moves;
     }
 
+    /// <summary>
+    /// Normalized Cockcroft–Latham damage increment: D += max(σ₁, 0) / σ̄ · ε̄̇ · Δt, with σ = s + σm·I from the converged
+    /// deviatoric stress and the averaged-nodal mean stress. Only tension damages; compression heals nothing.
+    /// </summary>
+    private void AccumulateDamage(double dt)
+    {
+        for (int e = 0; e < _ne; e++)
+        {
+            double sig = _elSig[e];
+            if (!(sig > 0) || _elRate[e] <= _rateCut) continue;
+            int o = 6 * e;
+            double m = _elMean[e];
+            double s1 = Principal.Max3(_elDev[o] + m, _elDev[o + 1] + m, _elDev[o + 2] + m, _elDev[o + 3], _elDev[o + 4], _elDev[o + 5]);
+            if (s1 > 0) _dmg[e] += s1 / sig * _elRate[e] * dt;
+        }
+    }
+
     private double MinQuality(Vec3[] x, TetMesh mesh)
     {
         double q = double.MaxValue;
@@ -1563,6 +1586,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
         var t = mesh.Tets;
         var newEps = new double[mesh.ElementCount];
+        var newDmg = new double[mesh.ElementCount];
         var newSig = new double[mesh.ElementCount];
         var newRate = new double[mesh.ElementCount];
         var newMean = new double[mesh.ElementCount];
@@ -1571,6 +1595,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             var c = 0.25 * (x[t[4 * e]] + x[t[4 * e + 1]] + x[t[4 * e + 2]] + x[t[4 * e + 3]]);
             int found = locator.FindNearest(c);
             newEps[e] = found >= 0 ? _eps[found] : 0;
+            newDmg[e] = found >= 0 ? _dmg[found] : 0;
             newSig[e] = found >= 0 ? _elSig[found] : _sigRef;
             newRate[e] = found >= 0 ? _elRate[found] : 0;
             newMean[e] = found >= 0 ? _elMean[found] : 0;
@@ -1581,6 +1606,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
         Allocate(mesh, x);
         _eps = newEps;
+        _dmg = newDmg;
         _elSig = newSig;
         _elRate = newRate;
         _elMean = newMean;
@@ -1691,12 +1717,14 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         bool initial = step == 0;
         var vm = new float[_ne];
         var ep = new float[_ne];
+        var dm = new float[_ne];
         var er = new float[_ne];
         var sm = new float[_ne];
         for (int e = 0; e < _ne; e++)
         {
             vm[e] = initial ? 0f : (float)_elSig[e];
             ep[e] = (float)_eps[e];
+            dm[e] = (float)_dmg[e];
             er[e] = initial ? 0f : (float)_elRate[e];
             sm[e] = initial ? 0f : (float)_elMean[e];
         }
@@ -1717,6 +1745,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             Z = zs,
             VonMises = vm,
             EffectiveStrain = ep,
+            Damage = dm,
             EffectiveStrainRate = er,
             MeanStress = sm,
             Contact = (NodeContact[])_contact.Clone(),

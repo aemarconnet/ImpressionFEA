@@ -9,6 +9,9 @@ public enum ResultField
     EffectiveStrain,
     EffectiveStrainRate,
     MeanStress,
+
+    /// <summary>Normalized Cockcroft–Latham ductile damage ∫ max(σ₁, 0)/σ̄ dε̄ (tearing risk; compare with the critical value).</summary>
+    Damage,
 }
 
 public enum NodeContact : byte
@@ -48,6 +51,9 @@ public abstract class ForgingSnapshot
 
     public required float[] MeanStress { get; init; }
 
+    /// <summary>Normalized Cockcroft–Latham damage per element (empty for results written before damage existed).</summary>
+    public float[] Damage { get; init; } = [];
+
     public required NodeContact[] Contact { get; init; }
 
     /// <summary>Nodal material velocity of this increment, mm/s (x / radius r; y / axial z in 2D). Empty for the setup state.</summary>
@@ -72,6 +78,7 @@ public abstract class ForgingSnapshot
         ResultField.EffectiveStrain => EffectiveStrain,
         ResultField.EffectiveStrainRate => EffectiveStrainRate,
         ResultField.MeanStress => MeanStress,
+        ResultField.Damage => Damage.Length > 0 ? Damage : new float[ElementCount],
         _ => VonMises,
     };
 }
