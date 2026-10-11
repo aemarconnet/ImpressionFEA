@@ -11,6 +11,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Esc aborts whatever is running: solve, multi-run or export.
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && DataContext is MainViewModel m && m.AbortAll()) e.Handled = true;
+        };
         Title = $"ImpressionFEA {AppVersion.Display} — Closed-Die Impression Forging FEA";
         var vm = new MainViewModel();
         DataContext = vm;
@@ -66,6 +71,7 @@ public partial class MainWindow : Window
                 }
 
                 if (tabIndex > 0 && FindName("ConfigTabs") is System.Windows.Controls.TabControl tabs) tabs.SelectedIndex = tabIndex;
+                ApplySetArgs(vm, args);
                 await CaptureAsync(vm, args[cap + 1], args.Contains("--solve"));
             };
         }
@@ -79,9 +85,8 @@ public partial class MainWindow : Window
             Title = "Import STEP assembly (bottom die, workpiece, top die)",
             Filter = "STEP files (*.step;*.stp)|*.step;*.stp|All files (*.*)|*.*",
         };
-        string? samples = FindSamples();
-        if (samples is not null) dlg.InitialDirectory = samples;
-        if (dlg.ShowDialog(this) != true) return;
+        dlg.InitialDirectory = Infrastructure.AppSettings.Folder("step", FindSamples());
+        if (!Ask(dlg, "step")) return;
         string? error = await vm.ImportStepAsync(dlg.FileName, asm =>
         {
             var pick = new TopDieDialog(asm) { Owner = this };
@@ -107,14 +112,14 @@ public partial class MainWindow : Window
     private async void OpenSetup_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Open setup", Filter = SetupFilter };
-        if (dlg.ShowDialog(this) != true) return;
+        if (!Ask(dlg, "setup")) return;
         Warn(await Vm.OpenSetupAsync(dlg.FileName), "Open setup");
     }
 
     private void SaveSetup_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.SaveFileDialog { Title = "Save setup", Filter = SetupFilter, FileName = "setup" + Core.Simulation.RunSettings.FileExtension };
-        if (dlg.ShowDialog(this) != true) return;
+        if (!Ask(dlg, "setup")) return;
         try
         {
             Vm.SaveSetup(dlg.FileName);
@@ -135,7 +140,7 @@ public partial class MainWindow : Window
             Filter = "CSV (*.csv)|*.csv",
             FileName = $"run{run.Number:000}.csv",
         };
-        if (dlg.ShowDialog(this) != true) return;
+        if (!Ask(dlg, "telemetry")) return;
         try
         {
             Vm.SaveTelemetry(dlg.FileName, run);
@@ -149,7 +154,7 @@ public partial class MainWindow : Window
     private void SaveAllTelemetry_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Folder for all runs (CSV per run + summary.csv)" };
-        if (dlg.ShowDialog(this) != true) return;
+        if (!Ask(dlg, "telemetry")) return;
         try
         {
             Vm.SaveAllTelemetry(dlg.FolderName);
@@ -166,6 +171,7 @@ public partial class MainWindow : Window
     {
         var dlg = new MultiRunDialog(Vm, parameter, values) { Owner = this };
         if (dlg.ShowDialog() != true) return;
+        Infrastructure.AppSettings.Remember("multirun", dlg.Folder);
         Warn(await Vm.RunSweepAsync(dlg.Parameter, dlg.Values, dlg.Folder), "Multi-run");
     }
 
@@ -186,7 +192,7 @@ public partial class MainWindow : Window
         }
 
         SweepParameter? p = demo.Sweep is { } s && Enum.TryParse<SweepParameter>(s.Parameter, true, out var sp) ? sp : null;
-        await StartMultiRun(p, demo.Sweep is { } sw ? string.Join(", ", sw.Values) : null);
+        await StartMultiRun(p, demo.Sweep is { } sw ? Vm.DemoSweepText(sw) : null);
     }
 
     private void OpenDemoFolder_Click(object sender, RoutedEventArgs e)
@@ -223,8 +229,8 @@ public partial class MainWindow : Window
     private void SaveImage_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.SaveFileDialog { Title = "Save image", Filter = "PNG image (*.png)|*.png", FileName = ExportBaseName() + ".png" };
-        if (dlg.ShowDialog(this) != true) return;
-        RunExport(() =>
+        if (!Ask(dlg, "image")) return;
+        RunExport(_ =>
         {
             Exporter.SaveImage(dlg.FileName, Export.VideoContent.View, 2);
             return Task.FromResult<string?>(null);
@@ -236,7 +242,8 @@ public partial class MainWindow : Window
         var dlg = new Export.VideoExportDialog(ExportBaseName()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         var o = dlg.Options;
-        RunExport(async () => await Exporter.SaveVideoAsync(o), "Save video");
+        Infrastructure.AppSettings.Remember("video", o.Path);
+        RunExport(async ct => await Exporter.SaveVideoAsync(o, ct), "Save video");
     }
 
     private void SaveSurface_Click(object sender, RoutedEventArgs e)
@@ -247,8 +254,8 @@ public partial class MainWindow : Window
             Filter = "STL, binary (*.stl)|*.stl|PLY with result colours (*.ply)|*.ply|Both STL and PLY (*.stl)|*.stl",
             FileName = ExportBaseName() + $"_step{Vm.CurrentSnapshot?.Step ?? 0}.stl",
         };
-        if (dlg.ShowDialog(this) != true) return;
-        RunExport(() =>
+        if (!Ask(dlg, "surface")) return;
+        RunExport(_ =>
         {
             Exporter.SaveSurface(dlg.FileName, both: dlg.FilterIndex == 3);
             return Task.FromResult<string?>(null);
@@ -260,25 +267,48 @@ public partial class MainWindow : Window
         var dlg = new Export.ReportDialog(ExportBaseName() + "_report") { Owner = this };
         if (dlg.ShowDialog() != true) return;
         var o = dlg.Options;
-        RunExport(async () =>
+        Infrastructure.AppSettings.Remember("report", System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(o.Folder)));
+        RunExport(async ct =>
         {
-            string html = await Exporter.GenerateReportAsync(o);
+            string html = await Exporter.GenerateReportAsync(o, ct);
             if (o.OpenWhenDone) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(html) { UseShellExecute = true });
             return html;
         }, "Generate report");
     }
 
-    private async void RunExport(Func<Task<string?>> work, string title)
+    private async void RunExport(Func<CancellationToken, Task<string?>> work, string title)
     {
+        using var cts = new CancellationTokenSource();
+        Vm.ExportCancellation = cts;
         try
         {
-            await work();
+            await work(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Vm.SetStatus(title + " cancelled (Esc). Files written so far are kept.");
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException or ArgumentException)
         {
             Vm.SetStatus(title + " failed: " + ex.Message);
             Warn(ex.Message, title);
         }
+        finally
+        {
+            Vm.ExportCancellation = null;
+        }
+    }
+
+    /// <summary>
+    /// Shows a file / folder dialog starting in the folder last used for this kind of file, and remembers the new
+    /// choice. Returns true when the user confirmed.
+    /// </summary>
+    private bool Ask(Microsoft.Win32.CommonItemDialog dlg, string kind)
+    {
+        if (string.IsNullOrEmpty(dlg.InitialDirectory)) dlg.InitialDirectory = Infrastructure.AppSettings.Folder(kind) ?? "";
+        if (dlg.ShowDialog(this) != true) return false;
+        Infrastructure.AppSettings.Remember(kind, dlg is Microsoft.Win32.OpenFolderDialog f ? f.FolderName : ((Microsoft.Win32.FileDialog)dlg).FileName);
+        return true;
     }
 
     /// <summary>The repository / install "samples" folder, if one is found above the executable.</summary>
@@ -291,6 +321,21 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    /// <summary>Smoke tests: --set Name=Value (repeatable) sets a view-model property (bool, number, enum or text).</summary>
+    private static void ApplySetArgs(MainViewModel vm, string[] args)
+    {
+        for (int i = 0; i + 1 < args.Length; i++)
+        {
+            if (args[i] != "--set") continue;
+            var kv = args[i + 1].Split('=', 2);
+            var prop = typeof(MainViewModel).GetProperty(kv[0]);
+            if (prop is null || !prop.CanWrite || kv.Length < 2) continue;
+            var t = prop.PropertyType;
+            object value = t.IsEnum ? Enum.Parse(t, kv[1], true) : Convert.ChangeType(kv[1], t, System.Globalization.CultureInfo.InvariantCulture);
+            prop.SetValue(vm, value);
+        }
     }
 
     private async Task CaptureAsync(MainViewModel vm, string path, bool solve)

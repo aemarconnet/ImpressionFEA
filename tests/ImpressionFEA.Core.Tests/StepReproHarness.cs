@@ -9,6 +9,9 @@ namespace ImpressionFEA.Core.Tests;
 
 public class StepReproHarness(ITestOutputHelper output)
 {
+    private static double Env(string name, double fallback) =>
+        double.TryParse(Environment.GetEnvironmentVariable(name), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v) ? v : fallback;
+
     [Fact]
     [Trait("Category", "Scratch")]
     public void RunStepFileToClosure()
@@ -22,7 +25,8 @@ public class StepReproHarness(ITestOutputHelper output)
         var cfg = new SimulationConfig3D
         {
             Die = die, Material = MaterialPresets.All[0], Temperature = MaterialPresets.All[0].DefaultTemperature,
-            ElementSize = die.RecommendedElementSize, StrokeIncrement = die.RecommendedStrokeIncrement, RamSpeed = 50,
+            ElementSize = Env("REPRO_H", die.RecommendedElementSize), StrokeIncrement = Env("REPRO_DS", die.RecommendedStrokeIncrement), RamSpeed = 50,
+            RefineThinFlash = Environment.GetEnvironmentVariable("REPRO_FLASH") == "1",
         };
         output.WriteLine(string.Join("\n", cfg.Validate()));
         using var solver = new Forging3DSolver(cfg, l => { if (!l.StartsWith("    it")) output.WriteLine(l); });

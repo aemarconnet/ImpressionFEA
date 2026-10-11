@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using System.Runtime.CompilerServices;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -26,11 +27,17 @@ public sealed class SolidViewport3D : Grid
     public static readonly DependencyProperty RangeMinProperty = Reg(nameof(RangeMin), typeof(double), 0.0, false);
     public static readonly DependencyProperty RangeMaxProperty = Reg(nameof(RangeMax), typeof(double), 1.0, false);
     public static readonly DependencyProperty ShowFieldProperty = Reg(nameof(ShowField), typeof(bool), true, false);
-    public static readonly DependencyProperty CutAwayProperty = Reg(nameof(CutAway), typeof(bool), true, false);
+    public static readonly DependencyProperty CutAwayProperty = Reg(nameof(CutAway), typeof(bool), false, false);
     public static readonly DependencyProperty ShowDiesProperty = Reg(nameof(ShowDies), typeof(bool), true, false);
     public static readonly DependencyProperty ShowEdgesProperty = Reg(nameof(ShowEdges), typeof(bool), false, false);
+    public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false, false);
+    public static readonly DependencyProperty ShowContactProperty = Reg(nameof(ShowContact), typeof(bool), false, false);
+    public static readonly DependencyProperty UnitsProperty = Reg(nameof(Units), typeof(ImpressionFEA.App.Infrastructure.UnitSystem), ImpressionFEA.App.Infrastructure.UnitSystem.US, false);
+
+    /// <summary>Display unit system (colour-bar labels); changing it rebuilds.</summary>
+    public ImpressionFEA.App.Infrastructure.UnitSystem Units { get => (ImpressionFEA.App.Infrastructure.UnitSystem)GetValue(UnitsProperty); set => SetValue(UnitsProperty, value); }
     public static readonly DependencyProperty LightingProperty = DependencyProperty.Register(nameof(Lighting), typeof(ViewLighting), typeof(SolidViewport3D),
-        new PropertyMetadata(ViewLighting.Uniform, (d, _) => ((SolidViewport3D)d).ApplyLighting()));
+        new PropertyMetadata(ViewLighting.Shaded, (d, _) => ((SolidViewport3D)d).ApplyLighting()));
     public static readonly DependencyProperty PartLengthProperty = Reg(nameof(PartLength), typeof(double), 100.0, true);
     public static readonly DependencyProperty ViewBoundsProperty = Reg(nameof(ViewBounds), typeof(Rect), new Rect(0, -10, 50, 60), true);
     public static readonly DependencyProperty FieldTitleProperty = DependencyProperty.Register(nameof(FieldTitle), typeof(string), typeof(SolidViewport3D),
@@ -45,7 +52,16 @@ public sealed class SolidViewport3D : Grid
     private readonly AmbientLight _ambient = new(Colors.White);
     private readonly DirectionalLight _fill = new(Color.FromRgb(0x40, 0x40, 0x40), new Vector3D(0.3, -1, 0.2));
     private readonly Material _edgeMaterial = Frozen(new DiffuseMaterial(EdgeBrush()));
+    private readonly Material _ghostMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(0x40, 0x8A, 0x96, 0xA4))));
+    private static readonly Color BottomContactColor = Color.FromRgb(0xE6, 0x9F, 0x00);
+    private static readonly Color TopContactColor = Color.FromRgb(0xCC, 0x3D, 0x9B);
+    private readonly Material _bottomContactMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(BottomContactColor)));
+    private readonly Material _topContactMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(TopContactColor)));
     private readonly ModelVisual3D _content = new();
+    private readonly Grid _views = new();
+    private readonly List<AuxView> _aux = [];
+    private readonly Viewport3D _mainView;
+    private readonly TextBlock _isoLabel;
     private readonly TextBlock _title = new() { Margin = new Thickness(12, 7, 0, 0), FontWeight = FontWeights.SemiBold, FontSize = 12 };
     private readonly ColorBar _bar = new() { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 30, 12, 0), Width = 84 };
     private readonly Material _fieldMaterial;
@@ -108,8 +124,29 @@ public sealed class SolidViewport3D : Grid
         viewport.Children.Add(new ModelVisual3D { Content = lights });
         viewport.Children.Add(_content);
         RenderOptions.SetEdgeMode(viewport, EdgeMode.Unspecified);
+        _mainView = viewport;
 
-        Children.Add(viewport);
+        _views.RowDefinitions.Add(new RowDefinition());
+        _views.RowDefinitions.Add(new RowDefinition());
+        _views.ColumnDefinitions.Add(new ColumnDefinition());
+        _views.ColumnDefinitions.Add(new ColumnDefinition());
+        _views.Children.Add(viewport);
+        foreach (var (name, row, col) in new[] { ("TOP", 0, 0), ("FRONT", 1, 0), ("RIGHT", 1, 1) })
+        {
+            var aux = new AuxView(name);
+            Grid.SetRow(aux.Host, row);
+            Grid.SetColumn(aux.Host, col);
+            _views.Children.Add(aux.Host);
+            _aux.Add(aux);
+        }
+
+        _isoLabel = new TextBlock { Text = "ISOMETRIC", FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(0x56, 0x60, 0x6C)), Margin = new Thickness(8, 30, 0, 0), IsHitTestVisible = false };
+        Grid.SetRow(_isoLabel, 0);
+        Grid.SetColumn(_isoLabel, 1);
+        _views.Children.Add(_isoLabel);
+        _views.SizeChanged += (_, _) => FitAux();
+        LayoutViews();
+        Children.Add(_views);
         Children.Add(_title);
         Children.Add(_bar);
         Children.Add(new TextBlock
@@ -177,6 +214,12 @@ public sealed class SolidViewport3D : Grid
     /// <summary>Uniform: ambient light only (no shading; contour colours exactly as on the colour bar). Soft / Shaded add a headlight.</summary>
     public ViewLighting Lighting { get => (ViewLighting)GetValue(LightingProperty); set => SetValue(LightingProperty, value); }
 
+    /// <summary>3D arrows of the nodal material velocity through the volume (the part is drawn as a translucent ghost).</summary>
+    public bool ShowVelocity { get => (bool)GetValue(ShowVelocityProperty); set => SetValue(ShowVelocityProperty, value); }
+
+    /// <summary>Highlight surface faces in contact with the bottom die (amber) and the top die (magenta).</summary>
+    public bool ShowContact { get => (bool)GetValue(ShowContactProperty); set => SetValue(ShowContactProperty, value); }
+
     /// <summary>Draw the element edges of the workpiece surface (and section).</summary>
     public bool ShowEdges { get => (bool)GetValue(ShowEdgesProperty); set => SetValue(ShowEdgesProperty, value); }
 
@@ -191,6 +234,7 @@ public sealed class SolidViewport3D : Grid
         _ambient.Color = Color.FromRgb(amb, amb, amb);
         _headlight.Color = Color.FromRgb(head, head, head);
         _fill.Color = Color.FromRgb(fill, fill, fill);
+        foreach (var a in _aux) a.SetLighting(amb, head);
     }
 
     /// <summary>
@@ -251,14 +295,114 @@ public sealed class SolidViewport3D : Grid
         return f;
     }
 
+    // ------------------------------------------------------------------ quad view
+
+    private void SetContent(Model3DGroup group)
+    {
+        _content.Content = group;
+        foreach (var a in _aux) a.Content.Content = group; // frozen, so shared by every view
+        if (QuadView) FitAux();
+    }
+
+    private void LayoutViews()
+    {
+        bool quad = QuadView;
+        Grid.SetRow(_mainView, quad ? 0 : 0);
+        Grid.SetColumn(_mainView, quad ? 1 : 0);
+        Grid.SetRowSpan(_mainView, quad ? 1 : 2);
+        Grid.SetColumnSpan(_mainView, quad ? 1 : 2);
+        foreach (var a in _aux) a.Host.Visibility = quad ? Visibility.Visible : Visibility.Collapsed;
+        _isoLabel.Visibility = quad ? Visibility.Visible : Visibility.Collapsed;
+        if (quad)
+        {
+            foreach (var a in _aux) a.Content.Content = _content.Content;
+            Dispatcher.BeginInvoke(FitAux, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
+    /// <summary>Frames the orthographic views on the visible bodies.</summary>
+    private void FitAux()
+    {
+        if (!QuadView || _content.Content is not { } m || m.Bounds.IsEmpty) return;
+        foreach (var a in _aux) a.Fit(m.Bounds);
+    }
+
+    /// <summary>An orthographic standard view (Top / Front / Right) sharing the main view's model.</summary>
+    private sealed class AuxView
+    {
+        private readonly OrthographicCamera _cam = new() { NearPlaneDistance = 0.01, FarPlaneDistance = 1e6 };
+        private readonly AmbientLight _amb = new(Colors.White);
+        private readonly DirectionalLight _dir = new(Colors.Black, new Vector3D(0, 0, -1));
+        private readonly Vector3D _look;
+        private readonly Vector3D _up;
+        private readonly Viewport3D _view;
+
+        public AuxView(string name)
+        {
+            // View space: X = model x, Y = model z (up), Z = -model y.
+            (_look, _up) = name switch
+            {
+                "TOP" => (new Vector3D(0, -1, 0), new Vector3D(0, 0, -1)),
+                "RIGHT" => (new Vector3D(-1, 0, 0), new Vector3D(0, 1, 0)),
+                _ => (new Vector3D(0, 0, -1), new Vector3D(0, 1, 0)), // FRONT
+            };
+            _cam.LookDirection = _look;
+            _cam.UpDirection = _up;
+            _dir.Direction = _look + new Vector3D(0.2, -0.3, 0.1);
+            var lights = new Model3DGroup { Children = { _amb, _dir } };
+            _view = new Viewport3D { Camera = _cam, IsHitTestVisible = false };
+            _view.Children.Add(new ModelVisual3D { Content = lights });
+            _view.Children.Add(Content);
+            var label = new TextBlock { Text = name, FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(0x56, 0x60, 0x6C)), Margin = new Thickness(8, 6, 0, 0), IsHitTestVisible = false };
+            var grid = new Grid { Children = { _view, label } };
+            Host = new Border { BorderBrush = new SolidColorBrush(Color.FromRgb(0xD5, 0xDA, 0xE0)), BorderThickness = new Thickness(0, 0, 1, 1), Child = grid, Visibility = Visibility.Collapsed };
+        }
+
+        public Border Host { get; }
+
+        public ModelVisual3D Content { get; } = new();
+
+        public void SetLighting(byte ambient, byte head)
+        {
+            _amb.Color = Color.FromRgb(ambient, ambient, ambient);
+            byte d = (byte)Math.Min(255, head + 0x20 * (head > 0 ? 1 : 0));
+            _dir.Color = Color.FromRgb(d, d, d);
+        }
+
+        public void Fit(Rect3D b)
+        {
+            double w = Math.Max(_view.ActualWidth, 1), h = Math.Max(_view.ActualHeight, 1);
+            var right = Vector3D.CrossProduct(_look, _up);
+            double minR = double.MaxValue, maxR = double.MinValue, minU = double.MaxValue, maxU = double.MinValue;
+            for (int k = 0; k < 8; k++)
+            {
+                var p = new Vector3D(b.X + ((k & 1) != 0 ? b.SizeX : 0), b.Y + ((k & 2) != 0 ? b.SizeY : 0), b.Z + ((k & 4) != 0 ? b.SizeZ : 0));
+                double r = Vector3D.DotProduct(p, right), u = Vector3D.DotProduct(p, _up);
+                minR = Math.Min(minR, r); maxR = Math.Max(maxR, r);
+                minU = Math.Min(minU, u); maxU = Math.Max(maxU, u);
+            }
+
+            var centre = new Point3D(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
+            double diag = Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ) + 1;
+            _cam.Width = 1.12 * Math.Max(maxR - minR, (maxU - minU) * w / h);
+            _cam.Position = centre - 2 * diag * _look;
+        }
+    }
+
     // ------------------------------------------------------------------ camera (SolidWorks-style controls)
 
-    /// <summary>Frames the model, keeping the current view orientation.</summary>
-    public void Fit()
+    /// <summary>Frames the model, keeping the current view orientation; <paramref name="visibleOnly"/> frames just the bodies shown.</summary>
+    public void Fit(bool visibleOnly = false)
     {
         Point3D centre;
         double radius;
-        if (Die3D is not null)
+        if (visibleOnly && _content.Content is { } shown && !shown.Bounds.IsEmpty)
+        {
+            var vb3 = shown.Bounds;
+            centre = new Point3D(vb3.X + vb3.SizeX / 2, vb3.Y + vb3.SizeY / 2, vb3.Z + vb3.SizeZ / 2);
+            radius = 0.5 * Math.Sqrt(vb3.SizeX * vb3.SizeX + vb3.SizeY * vb3.SizeY + vb3.SizeZ * vb3.SizeZ);
+        }
+        else if (Die3D is not null)
         {
             var b = Bounds3D;
             centre = Map(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
@@ -278,6 +422,7 @@ public sealed class SolidViewport3D : Grid
         if (ActualWidth > 0 && ActualHeight > 0) half = Math.Atan(Math.Tan(half) * Math.Min(1, ActualHeight / ActualWidth));
         _distance = 1.05 * radius / Math.Sin(half);
         UpdateCamera();
+        FitAux();
     }
 
     /// <summary>Sets a standard view direction (model z up) and refits.</summary>
@@ -443,7 +588,7 @@ public sealed class SolidViewport3D : Grid
         };
 
         if (ctrl && digit > 0) SetView((StandardView)digit);
-        else if (key == Key.F && !ctrl && !alt) Fit();
+        else if (key == Key.F && !ctrl && !alt) Fit(visibleOnly: true);
         else if (key == Key.Z && !ctrl && !alt) ZoomAt(new Point(ActualWidth / 2, ActualHeight / 2), shift ? 1 / 1.25 : 1.25);
         else if (key == Key.Space) ShowViewMenu();
         else if (arrow is { } a)
@@ -546,7 +691,7 @@ public sealed class SolidViewport3D : Grid
         }
 
         group.Freeze();
-        _content.Content = group;
+        SetContent(group);
         _bar.RangeMin = RangeMin;
         _bar.RangeMax = RangeMax;
         _bar.Visibility = ShowField && snap is not null ? Visibility.Visible : Visibility.Collapsed;
@@ -559,6 +704,72 @@ public sealed class SolidViewport3D : Grid
 
     private static Vector3D MapN(double x, double y, double z) => new(x, z, -y);
 
+    // ------------------------------------------------------------------ view settings (live)
+
+    public static readonly DependencyProperty PartVisibleProperty = Reg(nameof(PartVisible), typeof(bool), true, false);
+    public static readonly DependencyProperty PartOpacityProperty = Reg(nameof(PartOpacity), typeof(double), 1.0, false);
+    public static readonly DependencyProperty BottomDieVisibleProperty = Reg(nameof(BottomDieVisible), typeof(bool), true, false);
+    public static readonly DependencyProperty TopDieVisibleProperty = Reg(nameof(TopDieVisible), typeof(bool), true, false);
+    public static readonly DependencyProperty BottomDieOpacityProperty = Reg(nameof(BottomDieOpacity), typeof(double), 1.0, false);
+    public static readonly DependencyProperty TopDieOpacityProperty = Reg(nameof(TopDieOpacity), typeof(double), 0.15, false);
+    public static readonly DependencyProperty QuadViewProperty = DependencyProperty.Register(nameof(QuadView), typeof(bool), typeof(SolidViewport3D),
+        new PropertyMetadata(false, (d, _) => ((SolidViewport3D)d).LayoutViews()));
+    public static readonly DependencyProperty CutAxisProperty = Reg(nameof(CutAxis), typeof(CutPlaneAxis), CutPlaneAxis.Y, false);
+    public static readonly DependencyProperty CutFlipProperty = Reg(nameof(CutFlip), typeof(bool), false, false);
+    public static readonly DependencyProperty CutOffsetProperty = Reg(nameof(CutOffset), typeof(double), 0.0, false);
+    public static readonly DependencyProperty ArrowSpacingProperty = Reg(nameof(ArrowSpacing), typeof(double), 1.6, false);
+    public static readonly DependencyProperty ArrowScaleProperty = Reg(nameof(ArrowScale), typeof(double), 1.0, false);
+
+    public bool PartVisible { get => (bool)GetValue(PartVisibleProperty); set => SetValue(PartVisibleProperty, value); }
+
+    /// <summary>Workpiece opacity, 0.05 … 1.</summary>
+    public double PartOpacity { get => (double)GetValue(PartOpacityProperty); set => SetValue(PartOpacityProperty, value); }
+
+    public bool BottomDieVisible { get => (bool)GetValue(BottomDieVisibleProperty); set => SetValue(BottomDieVisibleProperty, value); }
+
+    public bool TopDieVisible { get => (bool)GetValue(TopDieVisibleProperty); set => SetValue(TopDieVisibleProperty, value); }
+
+    /// <summary>Bottom die opacity, 0.05 … 1 (opaque by default).</summary>
+    public double BottomDieOpacity { get => (double)GetValue(BottomDieOpacityProperty); set => SetValue(BottomDieOpacityProperty, value); }
+
+    /// <summary>Top die opacity, 0.05 … 1 (15 % by default, so the workpiece shows through).</summary>
+    public double TopDieOpacity { get => (double)GetValue(TopDieOpacityProperty); set => SetValue(TopDieOpacityProperty, value); }
+
+    /// <summary>Four views: Top (top-left), Isometric (top-right, interactive), Front (bottom-left), Right (bottom-right).</summary>
+    public bool QuadView { get => (bool)GetValue(QuadViewProperty); set => SetValue(QuadViewProperty, value); }
+
+    /// <summary>Cut-away plane normal: model x or y (vertical planes through the press axis).</summary>
+    public CutPlaneAxis CutAxis { get => (CutPlaneAxis)GetValue(CutAxisProperty); set => SetValue(CutAxisProperty, value); }
+
+    /// <summary>Remove the other side of the cut plane.</summary>
+    public bool CutFlip { get => (bool)GetValue(CutFlipProperty); set => SetValue(CutFlipProperty, value); }
+
+    /// <summary>Cut plane position as a fraction (−1 … 1) of the half-extent of the model along the cut axis.</summary>
+    public double CutOffset { get => (double)GetValue(CutOffsetProperty); set => SetValue(CutOffsetProperty, value); }
+
+    /// <summary>Flow-arrow spacing in element sizes (smaller = denser).</summary>
+    public double ArrowSpacing { get => (double)GetValue(ArrowSpacingProperty); set => SetValue(ArrowSpacingProperty, value); }
+
+    /// <summary>Flow-arrow length / thickness multiplier.</summary>
+    public double ArrowScale { get => (double)GetValue(ArrowScaleProperty); set => SetValue(ArrowScaleProperty, value); }
+
+    /// <summary>Cut-away test in model coordinates: true = keep.</summary>
+    private Func<double, double, bool> KeepTest()
+    {
+        if (!CutAway) return (_, _) => true;
+        var b = Bounds3D;
+        bool onX = CutAxis == CutPlaneAxis.X;
+        // Bounds3D is in model coordinates (x, y, z).
+        double center = onX ? b.X + b.SizeX / 2 : b.Y + b.SizeY / 2, half = onX ? b.SizeX / 2 : b.SizeY / 2;
+        double at = center + Math.Clamp(CutOffset, -1, 1) * half;
+        double side = CutFlip ? -1 : 1;
+        return onX ? (x, _) => side * (x - at) >= 0 : (_, y) => side * (y - at) >= 0;
+    }
+
+    private static Material Translucent(Material m, double opacity) => opacity >= 0.999 ? m : Frozen(new DiffuseMaterial(
+        m is DiffuseMaterial { Brush: ImageBrush ib } ? Frozen(new ImageBrush(ib.ImageSource) { ViewportUnits = ib.ViewportUnits, Viewport = ib.Viewport, TileMode = ib.TileMode, Opacity = opacity })
+        : new SolidColorBrush(Color.FromArgb((byte)(255 * opacity), PlainColor.R, PlainColor.G, PlainColor.B))));
+
     private void Build3D(DieSet3D die)
     {
         var group = new Model3DGroup();
@@ -568,52 +779,131 @@ public sealed class SolidViewport3D : Grid
             Symmetry3D.Half => [(1, 1), (1, -1)],
             _ => [(1, 1)],
         };
-        var removed = (Sx: 1, Sy: -1); // the copy facing the default camera
-        bool cut = CutAway;
+        var keep = KeepTest();
         bool field = ShowField;
-
+        double vmax = 0;
         if (Snapshot is Snapshot3D s)
         {
-            var mesh = s.Mesh;
-            var t = field ? Normalised(s) : new double[mesh.NodeCount];
-            var g = new MeshGeometry3D();
-            if (die.Symmetry == Symmetry3D.None) BuildFullPart(g, s, t, cut);
-            else BuildMirroredPart(g, s, t, copies, removed, cut);
-            g.Freeze();
-            var mat = field ? _fieldMaterial : _plainMaterial;
-            var model = new GeometryModel3D(g, mat) { BackMaterial = mat };
-            model.Freeze();
-            group.Children.Add(model);
-            if (ShowEdges) group.Children.Add(EdgeOverlay(g));
+            bool arrows = ShowVelocity && s.HasVelocity;
+            if (arrows)
+            {
+                // Opaque arrows first, then the (translucent) part over them.
+                var am = VelocityArrows(s, copies, keep, out vmax);
+                var arrowModel = new GeometryModel3D(am, _fieldMaterial) { BackMaterial = _fieldMaterial };
+                arrowModel.Freeze();
+                group.Children.Add(arrowModel);
+            }
+
+            if (PartVisible)
+            {
+                var t = field && !arrows ? Normalised(s) : new double[s.Mesh.NodeCount];
+                var g = BuildPart(s, t, copies, keep);
+                double opacity = arrows ? Math.Min(PartOpacity, 0.25) : PartOpacity;
+                var baseMat = arrows ? _ghostMaterial : field ? _fieldMaterial : _plainMaterial;
+                var mat = arrows ? baseMat : Translucent(baseMat, opacity);
+                if (ShowContact) AddContactOverlay(group, s, copies, keep);
+                var model = new GeometryModel3D(g, mat) { BackMaterial = mat };
+                model.Freeze();
+                group.Children.Add(model);
+                if (ShowEdges && !arrows) group.Children.Add(EdgeOverlay(g));
+            }
         }
 
         if (ShowDies)
         {
             double gap = Snapshot?.DieGap ?? (die.IsImported ? die.Place(0, 0).Gap : 0);
-            var dm = new MeshGeometry3D();
-            foreach (var (surf, off) in new[] { (die.Bottom, 0.0), (die.TopClosed, gap) })
+            foreach (var (surf, off, visible, opacity) in new[] { (die.Bottom, 0.0, BottomDieVisible, BottomDieOpacity), (die.TopClosed, gap, TopDieVisible, TopDieOpacity) })
             {
-                if (surf is HeightFieldDie hf) AddHeightField(dm, die, hf, off, cut);
-                else if (surf is TriMeshDie tm) AddSolid(dm, tm.Solid, off, cut);
+                if (!visible) continue;
+                byte alpha = (byte)Math.Clamp(255 * opacity, 10, 255);
+                var dieMat = Frozen(new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(alpha, DieColor.R, DieColor.G, DieColor.B))));
+                var dm = new MeshGeometry3D();
+                if (surf is HeightFieldDie hf) AddHeightField(dm, die, hf, off, keep);
+                else if (surf is TriMeshDie tm) AddSolid(dm, tm.Solid, off, keep, CutAway ? KeepPlane() : null);
+                dm.Freeze();
+                var dmodel = new GeometryModel3D(dm, dieMat) { BackMaterial = dieMat };
+                dmodel.Freeze();
+                group.Children.Add(dmodel);
             }
-
-            dm.Freeze();
-            var dmodel = new GeometryModel3D(dm, _dieMaterial) { BackMaterial = _dieMaterial };
-            dmodel.Freeze();
-            group.Children.Add(dmodel);
         }
 
         group.Freeze();
-        _content.Content = group;
-        _bar.RangeMin = RangeMin;
-        _bar.RangeMax = RangeMax;
-        _bar.Visibility = field && Snapshot is not null ? Visibility.Visible : Visibility.Collapsed;
+        SetContent(group);
+        var units = ImpressionFEA.App.Infrastructure.Units.Current;
+        if (vmax > 0)
+        {
+            _bar.RangeMin = 0;
+            _bar.RangeMax = vmax;
+            _bar.Formatter = v => units.L(v).ToString(units.LengthFormat, System.Globalization.CultureInfo.InvariantCulture);
+            _title.Text = "Material velocity |v|  [" + units.Speed + "]";
+        }
+        else
+        {
+            _bar.RangeMin = RangeMin;
+            _bar.RangeMax = RangeMax;
+            var f = Field;
+            _bar.Formatter = v => ContourPalette.Label(v, f);
+            _title.Text = FieldTitle;
+        }
+
+        _bar.InvalidateVisual();
+        _bar.Visibility = (field || vmax > 0) && Snapshot is not null ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>Symmetric (quarter / half) model: boundary surface mirrored into the full part; cut-away exposes the symmetry planes.</summary>
-    private static void BuildMirroredPart(MeshGeometry3D g, Snapshot3D s, double[] t, (int Sx, int Sy)[] copies, (int Sx, int Sy) removed, bool cut)
+    /// <summary>The cut plane as (axis is X, position, side) for clipping die facets exactly.</summary>
+    private (bool OnX, double At, double Side) KeepPlane()
+    {
+        var b = Bounds3D;
+        bool onX = CutAxis == CutPlaneAxis.X;
+        double center = onX ? b.X + b.SizeX / 2 : b.Y + b.SizeY / 2, half = onX ? b.SizeX / 2 : b.SizeY / 2;
+        return (onX, center + Math.Clamp(CutOffset, -1, 1) * half, CutFlip ? -1 : 1);
+    }
+
+    // ------------------------------------------------------------------ part surface
+
+    private static readonly ConditionalWeakTable<TetMesh, int[]> Adjacency = new();
+
+    /// <summary>For every tet face (opposite vertex q, outward order <see cref="FaceIdx"/>) the tet across it, or −1 on the boundary.</summary>
+    private static int[] AdjacencyOf(TetMesh mesh) => Adjacency.GetValue(mesh, m =>
+    {
+        var t = m.Tets;
+        var adj = new int[4 * m.ElementCount];
+        Array.Fill(adj, -1);
+        var open = new Dictionary<(int, int, int), int>(4 * m.ElementCount);
+        for (int e = 0; e < m.ElementCount; e++)
+        {
+            for (int q = 0; q < 4; q++)
+            {
+                var key = FaceKey(t[4 * e + FaceIdx[3 * q]], t[4 * e + FaceIdx[3 * q + 1]], t[4 * e + FaceIdx[3 * q + 2]]);
+                if (open.Remove(key, out int other))
+                {
+                    adj[4 * e + q] = other / 4;
+                    adj[other] = e;
+                }
+                else
+                {
+                    open[key] = 4 * e + q;
+                }
+            }
+        }
+
+        return adj;
+    });
+
+    /// <summary>Outward faces of a positively oriented tet, by opposite vertex 0..3.</summary>
+    private static readonly int[] FaceIdx = [1, 2, 3, 0, 3, 2, 0, 1, 3, 0, 2, 1];
+
+    /// <summary>
+    /// Visible surface of the full part: every symmetry copy of the modelled tets, clipped by the cut-away plane.
+    /// Outer faces get smooth normals and the contour values; faces exposed by the cut (or a symmetry plane whose
+    /// mirror tet was cut away) are flat sections. Mirrored copies reverse the winding.
+    /// </summary>
+    private static MeshGeometry3D BuildPart(Snapshot3D s, double[] t, (int Sx, int Sy)[] copies, Func<double, double, bool> keep)
     {
         var mesh = s.Mesh;
+        var tets = mesh.Tets;
+        var adj = AdjacencyOf(mesh);
+        int ne = mesh.ElementCount;
         var nrm = new Vector3D[mesh.NodeCount];
         var f = mesh.BoundaryFaces;
         for (int k = 0; k < mesh.FaceIsSymmetry.Length; k++)
@@ -626,107 +916,74 @@ public sealed class SolidViewport3D : Grid
             nrm[c] += fn;
         }
 
+        var cx = new double[ne];
+        var cy = new double[ne];
+        for (int e = 0; e < ne; e++)
+        {
+            cx[e] = 0.25 * (s.X[tets[4 * e]] + s.X[tets[4 * e + 1]] + s.X[tets[4 * e + 2]] + s.X[tets[4 * e + 3]]);
+            cy[e] = 0.25 * (s.Y[tets[4 * e]] + s.Y[tets[4 * e + 1]] + s.Y[tets[4 * e + 2]] + s.Y[tets[4 * e + 3]]);
+        }
+
+        bool Kept(int e, int sx, int sy) => keep(sx * cx[e], sy * cy[e]);
+        var g = new MeshGeometry3D();
         foreach (var (sx, sy) in copies)
         {
-            if (cut && (sx, sy) == removed) continue;
-            for (int k = 0; k < mesh.FaceIsSymmetry.Length; k++)
+            bool flip = sx * sy < 0;
+            for (int e = 0; e < ne; e++)
             {
-                int a = f[3 * k], b = f[3 * k + 1], c = f[3 * k + 2];
-                Vector3D? flat = null;
-                if (mesh.FaceIsSymmetry[k])
-                {
-                    if (!cut) continue;
-                    bool onX = mesh.OnX0[a] && mesh.OnX0[b] && mesh.OnX0[c];
-                    var neighbour = onX ? (-sx, sy) : (sx, -sy);
-                    if (neighbour != removed) continue;
-                    flat = onX ? MapN(-sx, 0, 0) : MapN(0, -sy, 0);
-                }
-
-                foreach (int n in new[] { a, b, c })
-                {
-                    g.Positions.Add(Map(sx * s.X[n], sy * s.Y[n], s.Z[n]));
-                    var v = flat ?? MapN(sx * nrm[n].X, sy * nrm[n].Y, nrm[n].Z);
-                    if (flat is null && v.Length > 0) v.Normalize();
-                    g.Normals.Add(v);
-                    g.TextureCoordinates.Add(new Point(t[n], 0.5));
-                }
-
-                int i0 = g.Positions.Count - 3;
-                AddTri(g, i0, i0 + 1, i0 + 2);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Full model (no symmetry): the outer surface with smooth normals; with cut-away, the tetrahedra in front of the
-    /// y = 0 plane (facing the default camera) are removed and the exposed section is drawn with flat normals.
-    /// </summary>
-    private static void BuildFullPart(MeshGeometry3D g, Snapshot3D s, double[] t, bool cut)
-    {
-        var mesh = s.Mesh;
-        var tets = mesh.Tets;
-        var nrm = new Vector3D[mesh.NodeCount];
-        var f = mesh.BoundaryFaces;
-        var outer = new HashSet<(int, int, int)>();
-        for (int k = 0; k < f.Length / 3; k++)
-        {
-            int a = f[3 * k], b = f[3 * k + 1], c = f[3 * k + 2];
-            var fn = FaceNormal(s, a, b, c);
-            nrm[a] += fn;
-            nrm[b] += fn;
-            nrm[c] += fn;
-            outer.Add(FaceKey(a, b, c));
-        }
-
-        var faces = new List<(int A, int B, int C, bool Section)>();
-        if (!cut)
-        {
-            for (int k = 0; k < f.Length / 3; k++) faces.Add((f[3 * k], f[3 * k + 1], f[3 * k + 2], false));
-        }
-        else
-        {
-            // Faces of the kept tets that are not shared by two kept tets; outward orientation from the owning tet.
-            var count = new Dictionary<(int, int, int), (int A, int B, int C, int N)>();
-            ReadOnlySpan<int> fi = [1, 2, 3, 0, 3, 2, 0, 1, 3, 0, 2, 1]; // outward faces of a positive tet (opposite vertices 0..3)
-            for (int e = 0; e < mesh.ElementCount; e++)
-            {
-                double cy = 0.25 * (s.Y[tets[4 * e]] + s.Y[tets[4 * e + 1]] + s.Y[tets[4 * e + 2]] + s.Y[tets[4 * e + 3]]);
-                if (cy < 0) continue;
+                if (!Kept(e, sx, sy)) continue;
                 for (int q = 0; q < 4; q++)
                 {
-                    int a = tets[4 * e + fi[3 * q]], b = tets[4 * e + fi[3 * q + 1]], c = tets[4 * e + fi[3 * q + 2]];
-                    var key = FaceKey(a, b, c);
-                    count[key] = count.TryGetValue(key, out var v) ? v with { N = v.N + 1 } : (a, b, c, 1);
+                    int a = tets[4 * e + FaceIdx[3 * q]], b = tets[4 * e + FaceIdx[3 * q + 1]], c = tets[4 * e + FaceIdx[3 * q + 2]];
+                    int nb = adj[4 * e + q];
+                    bool section;
+                    if (nb >= 0)
+                    {
+                        if (Kept(nb, sx, sy)) continue; // interior face
+                        section = true;
+                    }
+                    else
+                    {
+                        bool onX = mesh.OnX0[a] && mesh.OnX0[b] && mesh.OnX0[c], onY = mesh.OnY0[a] && mesh.OnY0[b] && mesh.OnY0[c];
+                        if (onX || onY)
+                        {
+                            // Symmetry plane: hidden while the mirror tet in the neighbouring copy is shown.
+                            if (Kept(e, onX ? -sx : sx, onY ? -sy : sy)) continue;
+                            section = true;
+                        }
+                        else
+                        {
+                            section = false;
+                        }
+                    }
+
+                    if (flip) (b, c) = (c, b);
+                    Vector3D? flat = null;
+                    if (section)
+                    {
+                        var fn = Vector3D.CrossProduct(
+                            new Vector3D(sx * (s.X[b] - s.X[a]), sy * (s.Y[b] - s.Y[a]), s.Z[b] - s.Z[a]),
+                            new Vector3D(sx * (s.X[c] - s.X[a]), sy * (s.Y[c] - s.Y[a]), s.Z[c] - s.Z[a]));
+                        flat = MapN(fn.X, fn.Y, fn.Z);
+                    }
+
+                    foreach (int n in new[] { a, b, c })
+                    {
+                        g.Positions.Add(Map(sx * s.X[n], sy * s.Y[n], s.Z[n]));
+                        var v = flat ?? MapN(sx * nrm[n].X, sy * nrm[n].Y, nrm[n].Z);
+                        if (v.Length > 0) v.Normalize();
+                        g.Normals.Add(v);
+                        g.TextureCoordinates.Add(new Point(t[n], 0.5));
+                    }
+
+                    int i0 = g.Positions.Count - 3;
+                    AddTri(g, i0, i0 + 1, i0 + 2);
                 }
             }
-
-            foreach (var (key, v) in count)
-            {
-                if (v.N == 1) faces.Add((v.A, v.B, v.C, !outer.Contains(key)));
-            }
         }
 
-        foreach (var (a, b, c, section) in faces)
-        {
-            Vector3D? flat = null;
-            if (section)
-            {
-                var fn = FaceNormal(s, a, b, c);
-                flat = MapN(fn.X, fn.Y, fn.Z);
-            }
-
-            foreach (int n in new[] { a, b, c })
-            {
-                g.Positions.Add(Map(s.X[n], s.Y[n], s.Z[n]));
-                var v = flat ?? MapN(nrm[n].X, nrm[n].Y, nrm[n].Z);
-                if (v.Length > 0) v.Normalize();
-                g.Normals.Add(v);
-                g.TextureCoordinates.Add(new Point(t[n], 0.5));
-            }
-
-            int i0 = g.Positions.Count - 3;
-            AddTri(g, i0, i0 + 1, i0 + 2);
-        }
+        g.Freeze();
+        return g;
     }
 
     private static (int, int, int) FaceKey(int a, int b, int c)
@@ -741,9 +998,147 @@ public sealed class SolidViewport3D : Grid
         new Vector3D(s.X[b] - s.X[a], s.Y[b] - s.Y[a], s.Z[b] - s.Z[a]),
         new Vector3D(s.X[c] - s.X[a], s.Y[c] - s.Y[a], s.Z[c] - s.Z[a]));
 
-    private static void AddHeightField(MeshGeometry3D dm, DieSet3D die, HeightFieldDie surf, double off, bool cut)
+    // ------------------------------------------------------------------ overlays
+
+    /// <summary>
+    /// Cone-tipped arrows of the nodal velocity, one node per cell of a spatial grid (ArrowSpacing element sizes), length
+    /// proportional to speed (× ArrowScale), colour = speed on the contour palette. Symmetric models are mirrored.
+    /// </summary>
+    private MeshGeometry3D VelocityArrows(Snapshot3D s, (int Sx, int Sy)[] copies, Func<double, double, bool> keep, out double vmax)
     {
-        bool quarter = die.Symmetry == Symmetry3D.Quarter;
+        var mesh = s.Mesh;
+        int nn = mesh.NodeCount;
+        vmax = 0;
+        for (int n = 0; n < nn; n++) vmax = Math.Max(vmax, Math.Sqrt(s.VelocityX[n] * s.VelocityX[n] + s.VelocityY[n] * s.VelocityY[n] + s.VelocityZ[n] * s.VelocityZ[n]));
+        var g = new MeshGeometry3D();
+        if (vmax <= 0) return g;
+
+        var f = mesh.BoundaryFaces;
+        double sum = 0;
+        int cnt = 0;
+        for (int k = 0; k < f.Length && cnt < 3000; k += 3, cnt++)
+        {
+            sum += Math.Sqrt(Sq(s.X[f[k]] - s.X[f[k + 1]]) + Sq(s.Y[f[k]] - s.Y[f[k + 1]]) + Sq(s.Z[f[k]] - s.Z[f[k + 1]]));
+        }
+
+        double h = cnt > 0 ? sum / cnt : 1, cell = Math.Clamp(ArrowSpacing, 0.5, 6) * h, scale = Math.Clamp(ArrowScale, 0.1, 5);
+        double maxLen = 1.4 * 1.6 * h * scale, radius = 0.07 * 1.6 * h * Math.Sqrt(scale);
+        var picked = new List<int>();
+        var used = new HashSet<(int, int, int)>();
+        for (int n = 0; n < nn; n++)
+        {
+            if (used.Add(((int)Math.Floor(s.X[n] / cell), (int)Math.Floor(s.Y[n] / cell), (int)Math.Floor(s.Z[n] / cell)))) picked.Add(n);
+        }
+
+        foreach (var (sx, sy) in copies)
+        {
+            foreach (int n in picked)
+            {
+                if (!keep(sx * s.X[n], sy * s.Y[n])) continue;
+                if ((sx < 0 && s.X[n] == 0) || (sy < 0 && s.Y[n] == 0)) continue; // plane nodes once
+                double vx = sx * s.VelocityX[n], vy = sy * s.VelocityY[n], vz = s.VelocityZ[n];
+                double sp = Math.Sqrt(vx * vx + vy * vy + vz * vz);
+                if (sp < 0.02 * vmax) continue;
+                var d = MapN(vx / sp, vy / sp, vz / sp);
+                AddArrow(g, Map(sx * s.X[n], sy * s.Y[n], s.Z[n]), d, Math.Max(0.25, sp / vmax) * maxLen, radius, Math.Clamp(sp / vmax, 0.001, 0.999));
+            }
+        }
+
+        g.Freeze();
+        return g;
+    }
+
+    private static double Sq(double v) => v * v;
+
+    private static void AddArrow(MeshGeometry3D g, Point3D p, Vector3D d, double len, double r, double t)
+    {
+        var u = Math.Abs(d.Y) < 0.9 ? Vector3D.CrossProduct(d, new Vector3D(0, 1, 0)) : Vector3D.CrossProduct(d, new Vector3D(1, 0, 0));
+        u.Normalize();
+        var w = Vector3D.CrossProduct(d, u);
+        const int Sides = 6;
+        double shaft = 0.68 * len, headR = 2.4 * r;
+        var tex = new Point(t, 0.5);
+        var neck = p + shaft * d;
+        var tip = p + len * d;
+        int b0 = g.Positions.Count;
+        for (int i = 0; i < Sides; i++)
+        {
+            double a = 2 * Math.PI * i / Sides;
+            var radial = Math.Cos(a) * u + Math.Sin(a) * w;
+            g.Positions.Add(p + r * radial);
+            g.Positions.Add(neck + r * radial);
+            g.Positions.Add(neck + headR * radial);
+            g.Normals.Add(radial);
+            g.Normals.Add(radial);
+            g.Normals.Add(radial + 0.4 * d);
+            for (int k = 0; k < 3; k++) g.TextureCoordinates.Add(tex);
+        }
+
+        int tipIdx = g.Positions.Count;
+        g.Positions.Add(tip);
+        g.Normals.Add(d);
+        g.TextureCoordinates.Add(tex);
+        for (int i = 0; i < Sides; i++)
+        {
+            int i0 = b0 + 3 * i, i1 = b0 + 3 * ((i + 1) % Sides);
+            AddTri(g, i0, i1, i1 + 1);         // shaft
+            AddTri(g, i0, i1 + 1, i0 + 1);
+            AddTri(g, i0 + 2, i1 + 2, tipIdx); // head cone
+            AddTri(g, i0 + 1, i1 + 1, i1 + 2); // head base ring
+            AddTri(g, i0 + 1, i1 + 2, i0 + 2);
+        }
+    }
+
+    /// <summary>Surface faces whose three nodes touch a die, in that die's highlight colour, nudged outwards.</summary>
+    private void AddContactOverlay(Model3DGroup group, Snapshot3D s, (int Sx, int Sy)[] copies, Func<double, double, bool> keep)
+    {
+        var mesh = s.Mesh;
+        var f = mesh.BoundaryFaces;
+        var b = Bounds3D;
+        double eps = 8e-4 * Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);
+        var meshes = new[] { new MeshGeometry3D(), new MeshGeometry3D() };
+        foreach (var (sx, sy) in copies)
+        {
+            for (int k = 0; k < mesh.FaceIsSymmetry.Length; k++)
+            {
+                if (mesh.FaceIsSymmetry[k]) continue;
+                int a = f[3 * k], bb = f[3 * k + 1], c = f[3 * k + 2];
+                var ca = s.Contact[a];
+                if (ca == NodeContact.Free || s.Contact[bb] != ca || s.Contact[c] != ca) continue;
+                if (!keep(sx * (s.X[a] + s.X[bb] + s.X[c]) / 3, sy * (s.Y[a] + s.Y[bb] + s.Y[c]) / 3)) continue;
+                var target = meshes[ca == NodeContact.BottomDie ? 0 : 1];
+                var pa = Map(sx * s.X[a], sy * s.Y[a], s.Z[a]);
+                var pb = Map(sx * s.X[bb], sy * s.Y[bb], s.Z[bb]);
+                var pc = Map(sx * s.X[c], sy * s.Y[c], s.Z[c]);
+                var n = Vector3D.CrossProduct(pb - pa, pc - pa);
+                if (n.Length == 0) continue;
+                n.Normalize();
+                if (sx * sy < 0) n = -n; // mirrored copies reverse the winding
+                int i0 = target.Positions.Count;
+                foreach (var q in new[] { pa, pb, pc })
+                {
+                    target.Positions.Add(q + eps * n);
+                    target.Normals.Add(n);
+                }
+
+                AddTri(target, i0, i0 + 1, i0 + 2);
+            }
+        }
+
+        foreach (var (m, mat) in new[] { (meshes[0], _bottomContactMaterial), (meshes[1], _topContactMaterial) })
+        {
+            if (m.Positions.Count == 0) continue;
+            m.Freeze();
+            var gm = new GeometryModel3D(m, mat) { BackMaterial = mat };
+            gm.Freeze();
+            group.Children.Add(gm);
+        }
+    }
+
+    // ------------------------------------------------------------------ dies
+
+    private static void AddHeightField(MeshGeometry3D dm, DieSet3D die, HeightFieldDie surf, double off, Func<double, double, bool> keep)
+    {
         double step = Math.Max(surf.Dx, (die.XMax - die.XMin) / 150);
         int nx = (int)Math.Ceiling((die.XMax - die.XMin) / step), ny = (int)Math.Ceiling(2 * die.YMax / step);
         int baseIdx = dm.Positions.Count;
@@ -767,7 +1162,7 @@ public sealed class SolidViewport3D : Grid
             for (int i = 0; i < nx; i++)
             {
                 double cx = die.XMin + (i + 0.5) * step, cy = -die.YMax + (j + 0.5) * step;
-                if (cut && cy < 0 && (!quarter || cx > 0)) continue;
+                if (!keep(cx, cy)) continue;
                 int p = baseIdx + j * (nx + 1) + i;
                 AddTri(dm, p, p + 1, p + nx + 2);
                 AddTri(dm, p, p + nx + 2, p + nx + 1);
@@ -775,8 +1170,8 @@ public sealed class SolidViewport3D : Grid
         }
     }
 
-    /// <summary>Imported die solid with flat facets, raised by <paramref name="off"/>; cut-away drops facets in front of y = 0.</summary>
-    private static void AddSolid(MeshGeometry3D dm, TriMeshSolid solid, double off, bool cut)
+    /// <summary>Imported die solid with flat facets, raised by <paramref name="off"/>; facets are clipped exactly at the cut plane.</summary>
+    private static void AddSolid(MeshGeometry3D dm, TriMeshSolid solid, double off, Func<double, double, bool> keep, (bool OnX, double At, double Side)? plane)
     {
         var v = solid.Vertices;
         var tri = solid.Triangles;
@@ -789,7 +1184,7 @@ public sealed class SolidViewport3D : Grid
             if (n.LengthSquared == 0) continue;
             var nv = MapN(n.X, n.Y, n.Z);
             nv.Normalize();
-            var poly = cut ? ClipToBack(a, b, c) : [a, b, c];
+            var poly = plane is { } pl ? ClipToPlane(a, b, c, pl.OnX, pl.At, pl.Side) : [a, b, c];
             if (poly.Count < 3) continue;
             int i0 = dm.Positions.Count;
             foreach (var p in poly)
@@ -802,17 +1197,19 @@ public sealed class SolidViewport3D : Grid
         }
     }
 
-    /// <summary>Part of triangle abc with y ≥ 0 (Sutherland–Hodgman against the cut-away plane), as a convex polygon.</summary>
-    private static List<Vec3> ClipToBack(Vec3 a, Vec3 b, Vec3 c)
+    /// <summary>Part of triangle abc on the kept side of the plane (Sutherland–Hodgman), as a convex polygon.</summary>
+    private static List<Vec3> ClipToPlane(Vec3 a, Vec3 b, Vec3 c, bool onX, double at, double side)
     {
+        double D(Vec3 p) => side * ((onX ? p.X : p.Y) - at);
         var res = new List<Vec3>(4);
         Vec3[] tri = [a, b, c];
         for (int k = 0; k < 3; k++)
         {
             var p = tri[k];
             var q = tri[(k + 1) % 3];
-            if (p.Y >= 0) res.Add(p);
-            if ((p.Y >= 0) != (q.Y >= 0)) res.Add(Vec3.Lerp(p, q, p.Y / (p.Y - q.Y)));
+            double dp = D(p), dq = D(q);
+            if (dp >= 0) res.Add(p);
+            if ((dp >= 0) != (dq >= 0)) res.Add(Vec3.Lerp(p, q, dp / (dp - dq)));
         }
 
         return res;
@@ -1038,4 +1435,14 @@ public enum ViewLighting
 
     /// <summary>Headlight and fill light (strong shading).</summary>
     Shaded,
+}
+
+/// <summary>Normal of the cut-away plane (vertical planes through the press axis).</summary>
+public enum CutPlaneAxis
+{
+    /// <summary>Plane y = const (front / back cut).</summary>
+    Y,
+
+    /// <summary>Plane x = const (left / right cut).</summary>
+    X,
 }

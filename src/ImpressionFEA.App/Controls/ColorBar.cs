@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 
@@ -21,6 +21,9 @@ public sealed class ColorBar : FrameworkElement
     public double RangeMin { get => (double)GetValue(RangeMinProperty); set => SetValue(RangeMinProperty, value); }
 
     public double RangeMax { get => (double)GetValue(RangeMaxProperty); set => SetValue(RangeMaxProperty, value); }
+
+    /// <summary>Label text for a value (default: adaptive number). Call InvalidateVisual after changing it.</summary>
+    public Func<double, string>? Formatter { get; set; }
 
     private static T Freeze<T>(T f) where T : Freezable
     {
@@ -50,7 +53,7 @@ public sealed class ColorBar : FrameworkElement
             double v = RangeMin + (RangeMax - RangeMin) * i / bands;
             double y = r.Bottom - i * bandH;
             dc.DrawLine(Outline, new Point(r.Right, y), new Point(r.Right + 4, y));
-            var ft = new FormattedText(ContourPalette.Format(v), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Mono, 10.5, Ink, pixelsPerDip);
+            var ft = new FormattedText(Formatter?.Invoke(v) ?? ContourPalette.Format(v), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Mono, 10.5, Ink, pixelsPerDip);
             dc.DrawText(ft, new Point(r.Right + 6, y - 7));
         }
     }

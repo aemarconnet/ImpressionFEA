@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using ImpressionFEA.App.Controls;
 using ImpressionFEA.Core.Simulation;
 
@@ -7,16 +7,54 @@ namespace ImpressionFEA.App.ViewModels;
 /// <summary>View settings and the state the exporters (image, video, STL / PLY, report) need.</summary>
 public sealed partial class MainViewModel
 {
-    private ViewLighting _lighting = ViewLighting.Uniform;
+    private ViewLighting _lighting = ViewLighting.Shaded;
     private bool _isExporting;
     private readonly StringBuilder _runLog = new();
 
     public IReadOnlyList<ViewLighting> LightingOptions { get; } = Enum.GetValues<ViewLighting>();
 
-    /// <summary>3D view lighting; Uniform (ambient only, no shading) by default.</summary>
+    /// <summary>3D view lighting; Shaded by default (Uniform = ambient only, colours exactly as on the colour bar).</summary>
     public ViewLighting Lighting { get => _lighting; set => Set(ref _lighting, value); }
 
     private bool _showEdges;
+    private bool _showVelocity;
+
+    /// <summary>Show arrows of the material flow velocity (2D section and 3D volume).</summary>
+    public bool ShowVelocity { get => _showVelocity; set => Set(ref _showVelocity, value); }
+
+    /// <summary>Cancels the running export (video / report frames), if any. Set by the view.</summary>
+    public CancellationTokenSource? ExportCancellation { get; set; }
+
+    /// <summary>Esc: aborts whatever is running (solve, multi-run, export). Returns true if something was running.</summary>
+    public bool AbortAll()
+    {
+        bool any = IsRunning || IsSweeping || IsExporting;
+        _sweepAbort = true;
+        _cts?.Cancel();
+        ExportCancellation?.Cancel();
+        if (any) StatusText = "Aborting (Esc)…";
+        return any;
+    }
+
+    /// <summary>
+    /// Starts fresh for an unrelated job: clears every run and its chart overlay, the current results, the telemetry
+    /// and the log. Inputs (geometry, material, settings) are kept.
+    /// </summary>
+    public System.Windows.Input.ICommand ResetCommand => new ImpressionFEA.App.Infrastructure.RelayCommand(() =>
+    {
+        Runs.Clear();
+        SelectedRun = null;
+        CurrentRun = null;
+        _runCounter = 0;
+        SyncOverlays();
+        OnPropertyChanged(nameof(HasRuns));
+        ResetResults();
+        State = RunState.Idle;
+        ClearRunLog();
+        LogCleared?.Invoke(this, EventArgs.Empty);
+        StatusText = "Reset: runs, telemetry and results cleared. Inputs are unchanged.";
+        BuildPreview();
+    }, () => !IsRunning && !IsSweeping && !IsExporting);
 
     /// <summary>Show element edges on the 3D part surface (off by default).</summary>
     public bool ShowEdges { get => _showEdges; set => Set(ref _showEdges, value); }

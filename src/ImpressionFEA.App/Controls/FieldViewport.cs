@@ -25,6 +25,18 @@ public sealed class FieldViewport : FrameworkElement
     public static readonly DependencyProperty ShowContactProperty = Reg(nameof(ShowContact), typeof(bool), false);
     public static readonly DependencyProperty ShowFieldProperty = Reg(nameof(ShowField), typeof(bool), true);
     public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false);
+    public static readonly DependencyProperty ArrowSpacingProperty = Reg(nameof(ArrowSpacing), typeof(double), 1.6);
+    public static readonly DependencyProperty ArrowScaleProperty = Reg(nameof(ArrowScale), typeof(double), 1.0);
+
+    /// <summary>Arrow spacing (1.6 = default density; smaller = denser).</summary>
+    public double ArrowSpacing { get => (double)GetValue(ArrowSpacingProperty); set => SetValue(ArrowSpacingProperty, value); }
+
+    /// <summary>Arrow length multiplier.</summary>
+    public double ArrowScale { get => (double)GetValue(ArrowScaleProperty); set => SetValue(ArrowScaleProperty, value); }
+    public static readonly DependencyProperty UnitsProperty = Reg(nameof(Units), typeof(ImpressionFEA.App.Infrastructure.UnitSystem), ImpressionFEA.App.Infrastructure.UnitSystem.US);
+
+    /// <summary>Display unit system (labels and scale bar); changing it redraws.</summary>
+    public ImpressionFEA.App.Infrastructure.UnitSystem Units { get => (ImpressionFEA.App.Infrastructure.UnitSystem)GetValue(UnitsProperty); set => SetValue(UnitsProperty, value); }
     public static readonly DependencyProperty ViewBoundsProperty = Reg(nameof(ViewBounds), typeof(Rect), new Rect(0, -10, 50, 60));
 
     private const int Bands = ContourPalette.Bands;
@@ -37,8 +49,8 @@ public sealed class FieldViewport : FrameworkElement
     private static readonly Pen MeshPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0x70, 0x10, 0x18, 0x20))), 0.5));
     private static readonly Pen OutlinePen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x10, 0x14, 0x18))), 1.1));
     private static readonly Pen AxisPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x56, 0x60, 0x6C))), 1) { DashStyle = new DashStyle([8, 3, 2, 3], 0) });
-    private static readonly Brush BottomContact = Frozen(new SolidColorBrush(Color.FromRgb(0x00, 0x8A, 0x5C)));
-    private static readonly Brush TopContact = Frozen(new SolidColorBrush(Color.FromRgb(0xB0, 0x2A, 0x9A)));
+    private static readonly Brush BottomContact = Frozen(new SolidColorBrush(Color.FromRgb(0xE6, 0x9F, 0x00)));
+    private static readonly Brush TopContact = Frozen(new SolidColorBrush(Color.FromRgb(0xCC, 0x3D, 0x9B)));
     private static readonly Brush Ink = Frozen(new SolidColorBrush(Color.FromRgb(0x10, 0x14, 0x18)));
     private static readonly Brush BilletFlat = Frozen(new SolidColorBrush(Color.FromRgb(0xD6, 0xDE, 0xE8)));
 
@@ -93,7 +105,7 @@ public sealed class FieldViewport : FrameworkElement
         double vmax = 0;
         for (int n = 0; n < s.NodeCount; n++) vmax = Math.Max(vmax, Math.Sqrt(s.VelocityX[n] * s.VelocityX[n] + s.VelocityY[n] * s.VelocityY[n]));
         if (vmax <= 0) return 0;
-        const double cell = 24, maxLen = 22;
+        double cell = 15 * Math.Clamp(ArrowSpacing, 0.5, 6), maxLen = 22 * Math.Clamp(ArrowScale, 0.1, 5);
         var used = new HashSet<(int, int)>();
         var shafts = new StreamGeometry();
         var heads = new StreamGeometry();
@@ -113,7 +125,7 @@ public sealed class FieldViewport : FrameworkElement
                     var d = new Vector(vx / sp, -vy / sp); // screen y points down
                     var tip = a + len * d;
                     var nrm = new Vector(-d.Y, d.X);
-                    double hl = Math.Min(6, 0.45 * len), hw = 0.5 * hl;
+                    double hl = Math.Min(6 * Math.Sqrt(Math.Clamp(ArrowScale, 0.1, 5)), 0.45 * len), hw = 0.5 * hl;
                     gs.BeginFigure(a, false, false);
                     gs.LineTo(tip - hl * 0.6 * d, true, false);
                     gh.BeginFigure(tip, true, true);
@@ -160,7 +172,7 @@ public sealed class FieldViewport : FrameworkElement
         dc.Pop();
 
         Text(dc, FieldTitle, new Point(12, 7), 12, UiFace, Ink);
-        if (vmax > 0) Text(dc, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Flow arrows: material velocity, longest = {vmax:F1} mm/s"), new Point(12, 24), 11, UiFace, Ink);
+        if (vmax > 0) Text(dc, "Flow arrows: material velocity, longest = " + ImpressionFEA.App.Infrastructure.Units.Current.Speedf(vmax), new Point(12, 24), 11, UiFace, Ink);
         DrawScaleBar(dc, scale, new Point(14, h - 18));
         if (legend) DrawColorBar(dc, new Rect(w - ColorBarWidth + 6, 34, 16, Math.Min(320, h - 70)));
     }
@@ -239,15 +251,23 @@ public sealed class FieldViewport : FrameworkElement
 
         if (ShowContact)
         {
-            for (int n = 0; n < mesh.NodeCount; n++)
+            // Boundary segments whose two nodes touch the same die, drawn thick in that die's colour.
+            var loop = mesh.BoundaryLoop;
+            foreach (double mirror in Mirror ? new[] { 1.0, -1.0 } : [1.0])
             {
-                if (s.Contact[n] == NodeContact.Free) continue;
-                var brush = s.Contact[n] == NodeContact.BottomDie ? BottomContact : TopContact;
-                var p = P(s.X[n], s.Y[n]);
-                dc.DrawRectangle(brush, null, new Rect(p.X - 2, p.Y - 2, 4, 4));
+                for (int k = 0; k < loop.Length; k++)
+                {
+                    int a = loop[k], b = loop[(k + 1) % loop.Length];
+                    var c = s.Contact[a];
+                    if (c == NodeContact.Free || s.Contact[b] != c) continue;
+                    dc.DrawLine(c == NodeContact.BottomDie ? BottomContactPen : TopContactPen, P(mirror * s.X[a], s.Y[a]), P(mirror * s.X[b], s.Y[b]));
+                }
             }
         }
     }
+
+    private static readonly Pen BottomContactPen = Frozen(new Pen(BottomContact, 4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Pen TopContactPen = Frozen(new Pen(TopContact, 4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
 
     private static void DrawDies(DrawingContext dc, DieSet die, double gap, Func<double, double, Point> P, double x0, Rect vb)
     {
@@ -294,19 +314,20 @@ public sealed class FieldViewport : FrameworkElement
             double v = RangeMin + (RangeMax - RangeMin) * i / Bands;
             double y = r.Bottom - i * bandH;
             dc.DrawLine(OutlinePen, new Point(r.Right, y), new Point(r.Right + 4, y));
-            Text(dc, ContourPalette.Format(v), new Point(r.Right + 6, y - 7), 10.5, MonoFace, Ink);
+            Text(dc, ContourPalette.Label(v, Field), new Point(r.Right + 6, y - 7), 10.5, MonoFace, Ink);
         }
     }
 
     private void DrawScaleBar(DrawingContext dc, double scale, Point at)
     {
-        double[] options = [0.5, 1, 2, 5, 10, 20, 50, 100];
-        double mm = options.LastOrDefault(o => o * scale <= 120, options[0]);
-        double len = mm * scale;
+        var u = ImpressionFEA.App.Infrastructure.Units.Current;
+        double[] options = u.System == ImpressionFEA.App.Infrastructure.UnitSystem.US ? [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4] : [0.5, 1, 2, 5, 10, 20, 50, 100];
+        double nice = options.LastOrDefault(o => o * u.MmPerLength * scale <= 120, options[0]);
+        double len = nice * u.MmPerLength * scale;
         dc.DrawLine(OutlinePen, at, new Point(at.X + len, at.Y));
         dc.DrawLine(OutlinePen, new Point(at.X, at.Y - 4), new Point(at.X, at.Y + 4));
         dc.DrawLine(OutlinePen, new Point(at.X + len, at.Y - 4), new Point(at.X + len, at.Y + 4));
-        Text(dc, mm.ToString(CultureInfo.InvariantCulture) + " mm", new Point(at.X + len + 6, at.Y - 7), 10.5, MonoFace, Ink);
+        Text(dc, nice.ToString(CultureInfo.InvariantCulture) + " " + u.Length, new Point(at.X + len + 6, at.Y - 7), 10.5, MonoFace, Ink);
     }
 
     private void Text(DrawingContext dc, string text, Point at, double size, Typeface face, Brush brush)

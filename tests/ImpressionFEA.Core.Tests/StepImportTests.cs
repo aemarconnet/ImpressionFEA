@@ -35,7 +35,7 @@ public class StepImportTests(ITestOutputHelper output)
         var bodies = StepImporter.Read(Sample(file));
         Assert.Equal(3, bodies.Count);
         var asm = ForgingAssembly.Classify(file, bodies);
-        Assert.Equal(1, asm.Workpiece.Index); // samples are written bottom, billet, top
+        Assert.Equal(1, asm.Workpiece!.Index); // samples are written bottom, billet, top
         Assert.Equal(2, asm.SuggestedTop.Index);
         var die = asm.BuildDieSet(asm.SuggestedTop, output.WriteLine);
         foreach (var b in bodies) output.WriteLine($"body {b.Index + 1}: V {b.Volume:F0} mm³ (mesh {b.Mesh.Volume:F0}), COG {b.CenterOfGravity}");
@@ -45,6 +45,46 @@ public class StepImportTests(ITestOutputHelper output)
         Assert.InRange(Math.Abs(seat), 0, 0.05); // samples rest on the bottom die
         if (expectedStroke > 0) Assert.InRange(gap, expectedStroke - 0.05, expectedStroke + 0.05);
         Assert.True(gap > 1);
+    }
+
+    [Theory]
+    [InlineData(UserBilletShape.VerticalBar, 0, 0, 0)]
+    [InlineData(UserBilletShape.HorizontalBar, 30, 6, -4)]
+    [InlineData(UserBilletShape.Block, 15, 0, 0)]
+    public void DieOnlyFileTakesAUserWorkpiece(UserBilletShape shape, double angle, double dx, double dy)
+    {
+        if (!Available()) return;
+        var asm = ForgingAssembly.Classify("gear dies", StepImporter.Read(Sample("sample_gear_dies_only.step")));
+        Assert.True(asm.IsDieOnly);
+        Assert.Throws<ArgumentException>(() => asm.BuildDieSet(asm.SuggestedTop));
+        var billet = new UserBillet { Shape = shape, Diameter = 56, Length = 81, Width = 60, Depth = 60, Height = 60, AngleDeg = angle, OffsetX = dx, OffsetY = dy };
+        var die = asm.BuildDieSet(asm.SuggestedTop, output.WriteLine, billet);
+        Assert.NotNull(die.UserBillet);
+        Assert.InRange(die.ImportedBillet!.Volume / billet.Volume, 0.99, 1.0001); // faceted cylinder ≤ exact
+        var (seat, gap) = die.Place(0, 0);
+        output.WriteLine($"{shape}: seat {seat:F3} mm, stroke {gap:F3} mm, cavity {die.CavityVolume() / 1000:F1} cm³, billet {billet.Volume / 1000:F1} cm³");
+        Assert.True(gap > 1, "stroke");
+        // The workpiece sits on the bottom die after seating: its lowest point is no longer above the start height.
+        Assert.True(seat < 0);
+
+        // Changing the workpiece re-seats it.
+        die.SetUserBillet(billet.WithVolume(1.1 * die.CavityVolume()));
+        Assert.InRange(die.ImportedBillet!.Volume / (1.1 * die.CavityVolume()), 0.99, 1.0001);
+        Assert.True(die.Place(0, 0).Gap > 1);
+    }
+
+    [Fact]
+    public void DieOnlyGearForgesWithUserBar()
+    {
+        if (!Available()) return;
+        var asm = ForgingAssembly.Classify("gear dies", StepImporter.Read(Sample("sample_gear_dies_only.step")));
+        var die = asm.BuildDieSet(asm.SuggestedTop, output.WriteLine, new UserBillet { Diameter = 56, Length = 81 });
+        var cfg = new SimulationConfig3D { Die = die, Material = Viscoplastic, Temperature = 1000, ElementSize = 4, StrokeIncrement = 1.2, RamSpeed = 40 };
+        Assert.Empty(cfg.Validate());
+        using var solver = new Forging3DSolver(cfg, output.WriteLine);
+        ForgingSnapshot s = solver.Initial();
+        for (int i = 0; i < 3; i++) s = solver.Step(CancellationToken.None);
+        Assert.True(s.LoadNewton > 0);
     }
 
     [Fact]

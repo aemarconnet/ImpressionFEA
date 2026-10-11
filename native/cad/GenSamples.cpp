@@ -50,6 +50,19 @@ void Write(const char* path, const TopoDS_Shape& bottom, const TopoDS_Shape& bil
     std::printf("%s: %s\n", path, w.Write(path) == IFSelect_RetDone ? "ok" : "FAILED");
 }
 
+// Two-body file: the dies only.
+void WriteDies(const char* path, const TopoDS_Shape& bottom, const TopoDS_Shape& top)
+{
+    BRep_Builder b;
+    TopoDS_Compound c;
+    b.MakeCompound(c);
+    b.Add(c, bottom);
+    b.Add(c, top);
+    STEPControl_Writer w;
+    w.Transfer(c, STEPControl_AsIs);
+    std::printf("%s: %s\n", path, w.Write(path) == IFSelect_RetDone ? "ok" : "FAILED");
+}
+
 // Solid of revolution (about Z) of a closed polygon given as (r, z) points.
 TopoDS_Shape Revolve(const std::vector<std::pair<double, double>>& rz)
 {
@@ -101,13 +114,15 @@ int main()
         TopoDS_Shape bottom = Revolve(section);
         TopoDS_Shape top = Moved(MirrorZ(bottom), 0, 0, 69.04);
         Write("sample_gear_3bodies.step", bottom, Cylinder(28, -6, 81.04), top);
+        // Dies only (no workpiece): the user defines the billet in ImpressionFEA. Top die raised to leave room for it.
+        WriteDies("sample_gear_dies_only.step", bottom, Moved(MirrorZ(bottom), 0, 0, 160));
     }
 
-    // 3. Hex flange (not axisymmetric): Ø30 bar seated in a Ø31 shank pocket; the top die carries a hexagonal
+    // 3. Hex flange (not axisymmetric): Ø30 bar seated in a close-fit Ø30.2 shank pocket; the top die carries a hexagonal
     //    pocket (60 mm across flats, 12 mm deep). Corner pads stop the dies with a 2 mm flash gap.
     {
         TopoDS_Shape bottom = PlateWithStops(70, -40, 40, 2);
-        bottom = BRepAlgoAPI_Cut(bottom, Cylinder(15.5, -30, 31)).Shape();
+        bottom = BRepAlgoAPI_Cut(bottom, Cylinder(15.1, -30, 31)).Shape();
         BRepBuilderAPI_MakePolygon hex;
         for (int k = 0; k < 6; ++k)
         {
@@ -120,7 +135,9 @@ int main()
         TopoDS_Shape topPlate = BRepPrimAPI_MakeBox(gp_Pnt(-70, -70, 0), 140, 140, 40).Shape();
         topPlate = BRepAlgoAPI_Cut(topPlate, pocket).Shape();
         // Closed when the top-plate face reaches z = 2, where it meets the bottom die's corner pads (2 mm flash gap).
-        const double billetH = 30 + 58.0; // 30 mm in the shank pocket + 58 mm upset into the hex head
+        // 30 mm in the shank pocket + 72 mm upset into the hex head: about 10 % more bar than the cavity (the usual flash
+        // allowance), so the hex corners fill completely and the excess escapes as flash.
+        const double billetH = 30 + 72.0;
         TopoDS_Shape top = Moved(topPlate, 0, 0, -30 + billetH);  // top die face touches the billet top
         Write("sample_hexflange_3bodies.step", bottom, Cylinder(15, -30, billetH), top);
     }

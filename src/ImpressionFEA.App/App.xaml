@@ -109,5 +109,41 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <!-- Drag handle between panels: a faint grip line that turns accent-blue on hover / drag. -->
+        <Style x:Key="Splitter" TargetType="GridSplitter">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GridSplitter">
+                        <Border Background="Transparent">
+                            <Border x:Name="Grip" Background="{StaticResource PanelBorder}" Opacity="0.55" CornerRadius="1">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Width" Value="2" />
+                                        <Setter Property="Height" Value="36" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ResizeDirection, RelativeSource={RelativeSource AncestorType=GridSplitter}}" Value="Rows">
+                                                <Setter Property="Width" Value="36" />
+                                                <Setter Property="Height" Value="2" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Grip" Property="Background" Value="{StaticResource Accent}" />
+                                <Setter TargetName="Grip" Property="Opacity" Value="1" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="Grip" Property="Background" Value="{StaticResource Accent}" />
+                                <Setter TargetName="Grip" Property="Opacity" Value="1" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>

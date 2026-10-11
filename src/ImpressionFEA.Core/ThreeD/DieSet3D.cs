@@ -1,4 +1,4 @@
-using ImpressionFEA.Core.Geometry;
+﻿using ImpressionFEA.Core.Geometry;
 
 namespace ImpressionFEA.Core.ThreeD;
 
@@ -43,8 +43,26 @@ public sealed class DieSet3D
 
     public required BilletShape Billet { get; init; }
 
+    private TriMeshSolid? _importedBillet;
+
     /// <summary>Workpiece solid as imported (only for <see cref="BilletShape.Imported"/>); it is dropped onto the bottom die before forging.</summary>
-    public TriMeshSolid? ImportedBillet { get; init; }
+    public TriMeshSolid? ImportedBillet { get => _importedBillet; init => _importedBillet = value; }
+
+    /// <summary>For die-only imports: the user-defined workpiece the <see cref="ImportedBillet"/> was generated from.</summary>
+    public Cad.UserBillet? UserBillet { get; private set; }
+
+    /// <summary>Init helper for <see cref="UserBillet"/> (kept settable only through <see cref="SetUserBillet"/> afterwards).</summary>
+    public Cad.UserBillet? UserBilletInit { init => UserBillet = value; }
+
+    /// <summary>Die-only imports: replaces the workpiece (shape, size, orientation, position) and re-seats it on the bottom die.</summary>
+    public void SetUserBillet(Cad.UserBillet billet)
+    {
+        ArgumentNullException.ThrowIfNull(billet);
+        if (UserBillet is null) throw new InvalidOperationException("This die set has an imported workpiece.");
+        UserBillet = billet;
+        _importedBillet = billet.ToSolid(Bottom.BoundsMax.Z + 1);
+        _importPlace = null;
+    }
 
     /// <summary>Plan-view signed distance to the impression outline (negative inside the impression, before the flash land).</summary>
     public required Func<double, double, double> Outline { get; init; }
@@ -100,6 +118,22 @@ public sealed class DieSet3D
 
         _cavity = v;
         return v;
+    }
+
+    /// <summary>Plan-view area of the impression (where the closed dies leave a gap inside the outline), mm².</summary>
+    public double ImpressionArea()
+    {
+        double d = Math.Max(0.5, Math.Sqrt((XMax - XMin) * 2 * YMax / 90000));
+        double a = 0;
+        for (double x = XMin + d / 2; x < XMax; x += d)
+        {
+            for (double y = -YMax + d / 2; y < YMax; y += d)
+            {
+                if (Outline(x, y) < 0 && TopClosed.SurfaceZ(x, y) - Bottom.SurfaceZ(x, y) > 0) a += d * d;
+            }
+        }
+
+        return a;
     }
 
     /// <summary>Full billet volume for the given dimensions (dimension = H for vertical cylinders, L for bars).</summary>

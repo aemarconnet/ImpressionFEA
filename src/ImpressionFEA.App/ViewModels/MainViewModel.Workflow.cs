@@ -20,6 +20,9 @@ public enum SweepParameter
     ElementSize,
     StrokeIncrement,
     Material,
+
+    /// <summary>Die-only imports: plan position x of the user workpiece.</summary>
+    WorkpieceOffsetX,
 }
 
 /// <summary>Workflow features: setups, STEP import / re-import, advanced settings, run history, multi-run and demos.</summary>
@@ -120,7 +123,7 @@ public sealed partial class MainViewModel
         }
         else
         {
-            string? error = await ImportCoreAsync(src.Path, asm => PickSameTop(asm, src), replace: _selectedDie3D, keepSettings: true);
+            string? error = await ImportCoreAsync(src.Path, asm => PickSameTop(asm, src), replace: _selectedDie3D, keepSettings: true, userBillet: _selectedDie3D.UserBillet);
             if (error is not null) return error;
             StatusText = "Re-imported " + Path.GetFileName(src.Path) + " — all settings kept.";
         }
@@ -140,7 +143,7 @@ public sealed partial class MainViewModel
         return (asm.DieA.CenterOfGravity - src.TopCog).Length <= (asm.DieB.CenterOfGravity - src.TopCog).Length ? asm.DieA : asm.DieB;
     }
 
-    private async Task<string?> ImportCoreAsync(string path, Func<ForgingAssembly, CadBody?> chooseTopDie, DieSet3D? replace, bool keepSettings)
+    private async Task<string?> ImportCoreAsync(string path, Func<ForgingAssembly, CadBody?> chooseTopDie, DieSet3D? replace, bool keepSettings, UserBillet? userBillet = null)
     {
         ArgumentNullException.ThrowIfNull(chooseTopDie);
         StatusText = "Reading STEP file " + Path.GetFileName(path) + "…";
@@ -175,7 +178,8 @@ public sealed partial class MainViewModel
         {
             die = await Task.Run(() =>
             {
-                var d = asm.BuildDieSet(top, _logQueue.Enqueue);
+                var d = asm.BuildDieSet(top, _logQueue.Enqueue, asm.IsDieOnly ? userBillet ?? new UserBillet() : null);
+                if (asm.IsDieOnly && userBillet is null) d.SetUserBillet(DefaultWorkpiece(d));
                 d.CavityVolume();
                 d.Place(0, 0);
                 return d;
@@ -253,6 +257,7 @@ public sealed partial class MainViewModel
             Preset = src is null ? (_analysis3D ? _selectedDie3D.Name : _selectedDie.Name) : null,
             StepFile = src?.Path,
             TopDieBody = src?.TopBody,
+            Workpiece = src is not null ? _selectedDie3D.UserBillet : null,
             Material = _selectedMaterial.Name,
             Temperature = _temperature,
             Friction = _friction,
@@ -288,10 +293,11 @@ public sealed partial class MainViewModel
             {
                 Analysis3D = true;
                 SelectedDie3D = existing;
+                if (s.Workpiece is { } wp && existing.UserBillet is not null) UpdateWorkpiece(wp);
             }
             else
             {
-                string? err = await ImportCoreAsync(step, asm => PickBody(asm, s.TopDieBody), replace: null, keepSettings: false);
+                string? err = await ImportCoreAsync(step, asm => PickBody(asm, s.TopDieBody), replace: null, keepSettings: false, userBillet: s.Workpiece);
                 if (err is not null) return err;
             }
         }
@@ -419,7 +425,7 @@ public sealed partial class MainViewModel
     {
         string geo = s.StepFile is { } f ? Path.GetFileNameWithoutExtension(f) : s.Preset ?? "";
         string mat = s.Material.Split(' ') is { Length: > 1 } parts ? parts[0] + " " + parts[1] : s.Material;
-        return FormattableString.Invariant($"{geo} · {mat} · {s.Temperature:F0} °C · m {s.Friction:F2} · v {s.RamSpeed:F0}");
+        return $"{geo} · {mat} · {U.Tf(s.Temperature)} · m {s.Friction.ToString("F2", Inv)} · v {U.L(s.RamSpeed).ToString("F1", Inv)}";
     }
 
     /// <summary>Puts the shown runs' curves on the chart (behind the live run).</summary>
@@ -511,11 +517,12 @@ public sealed partial class MainViewModel
     /// <summary>Unit and a sensible default value list for a sweep parameter, around the current setting.</summary>
     public (string Unit, string Suggestion) SweepDefaults(SweepParameter p) => p switch
     {
-        SweepParameter.Temperature => ("°C", string.Join(", ", new[] { -100, -50, 0, 50 }.Select(d => F($"{_temperature + d:F0}")))),
+        SweepParameter.Temperature => (U.Temperature, string.Join(", ", new[] { -100, -50, 0, 50 }.Select(d => U.T(_temperature + d).ToString("F0", Inv)))),
         SweepParameter.Friction => ("–", "0.1, 0.2, 0.3, 0.5"),
-        SweepParameter.RamSpeed => ("mm/s", string.Join(", ", new[] { 0.5, 1, 2, 4 }.Select(k => F($"{_ramSpeed * k:F0}")))),
-        SweepParameter.ElementSize => ("mm", string.Join(", ", new[] { 1.25, 1.0, 0.8 }.Select(k => F($"{_elementSize * k:F2}")))),
-        SweepParameter.StrokeIncrement => ("mm", string.Join(", ", new[] { 1.0, 0.5, 0.25 }.Select(k => F($"{_strokeIncrement * k:F3}")))),
+        SweepParameter.RamSpeed => (U.Speed, string.Join(", ", new[] { 0.5, 1, 2, 4 }.Select(k => U.L(_ramSpeed * k).ToString(U.LengthFormat, Inv)))),
+        SweepParameter.ElementSize => (U.Length, string.Join(", ", new[] { 1.25, 1.0, 0.8 }.Select(k => U.L(_elementSize * k).ToString(U.FineLengthFormat, Inv)))),
+        SweepParameter.StrokeIncrement => (U.Length, string.Join(", ", new[] { 1.0, 0.5, 0.25 }.Select(k => U.L(_strokeIncrement * k).ToString(U.FineLengthFormat, Inv)))),
+        SweepParameter.WorkpieceOffsetX => (U.Length, string.Join(", ", new[] { 0.0, 5, 10, 15 }.Select(mm => U.L(mm).ToString(U.LengthFormat, Inv)))),
         _ => ("", string.Join(", ", Materials.Select(m => m.Name.Split(' ')[0] + " " + m.Name.Split(' ').ElementAtOrDefault(1)))),
     };
 
@@ -590,11 +597,16 @@ public sealed partial class MainViewModel
         if (!double.TryParse(value, System.Globalization.NumberStyles.Float, Inv, out double v)) return $"\"{value}\" is not a number.";
         switch (p)
         {
-            case SweepParameter.Temperature: Temperature = v; break;
+            // Sweep values are entered in display units.
+            case SweepParameter.Temperature: TemperatureU = v; break;
             case SweepParameter.Friction: Friction = v; break;
-            case SweepParameter.RamSpeed: RamSpeed = v; break;
-            case SweepParameter.ElementSize: ElementSize = v; break;
-            case SweepParameter.StrokeIncrement: StrokeIncrement = v; break;
+            case SweepParameter.RamSpeed: RamSpeedU = v; break;
+            case SweepParameter.ElementSize: ElementSizeU = v; break;
+            case SweepParameter.StrokeIncrement: StrokeIncrementU = v; break;
+            case SweepParameter.WorkpieceOffsetX:
+                if (!IsUserBillet) return "Workpiece position can only be swept for die-only imports.";
+                WorkpieceOffsetXU = v;
+                break;
         }
 
         return null;
@@ -639,8 +651,28 @@ public sealed partial class MainViewModel
 
     private bool _keepSettings;
 
+    /// <summary>Demo sweeps are written in mm, °C and mm/s; shows them in the current display units.</summary>
+    public string DemoSweepText(DemoSweep sweep)
+    {
+        ArgumentNullException.ThrowIfNull(sweep);
+        if (!Enum.TryParse<SweepParameter>(sweep.Parameter, true, out var p)) return string.Join(", ", sweep.Values);
+        return string.Join(", ", sweep.Values.Select(v =>
+        {
+            if (!double.TryParse(v, System.Globalization.NumberStyles.Float, Inv, out double x)) return v;
+            return p switch
+            {
+                SweepParameter.Temperature => U.T(x).ToString("F0", Inv),
+                SweepParameter.RamSpeed => U.L(x).ToString(U.LengthFormat, Inv),
+                SweepParameter.ElementSize or SweepParameter.StrokeIncrement => U.L(x).ToString(U.FineLengthFormat, Inv),
+                SweepParameter.WorkpieceOffsetX => U.L(x).ToString(U.LengthFormat, Inv),
+                _ => v,
+            };
+        }));
+    }
+
     private void OnWorkflowChanged()
     {
+        RaiseWorkpiece();
         OnPropertyChanged(nameof(CanReimport));
         OnPropertyChanged(nameof(SourceText));
     }

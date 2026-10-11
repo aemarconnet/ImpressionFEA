@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -175,9 +175,9 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
     // ------------------------------------------------------------------ report
 
     /// <summary>Writes every output of the current results into a folder with a self-contained report.html; returns its path.</summary>
-    public Task<string> GenerateReportAsync(ReportOptions o) => WithViewStateAsync(() => ReportCoreAsync(o));
+    public Task<string> GenerateReportAsync(ReportOptions o, CancellationToken ct = default) => WithViewStateAsync(() => ReportCoreAsync(o, ct));
 
-    private async Task<string> ReportCoreAsync(ReportOptions o)
+    private async Task<string> ReportCoreAsync(ReportOptions o, CancellationToken ct)
     {
         var snaps = vm.Snapshots;
         if (snaps.Count == 0) throw new InvalidOperationException("There are no results to report.");
@@ -209,6 +209,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
         // Every field at the final increment.
         foreach (var f in vm.Fields)
         {
+            ct.ThrowIfCancellationRequested();
             vm.SetStatus("Report: " + f.Name + "…");
             vm.SelectedField = f;
             await SettleAsync();
@@ -222,11 +223,13 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
             double total = snaps[^1].Stroke;
             foreach (double frac in new[] { 0.0, 0.25, 0.5, 0.75, 1.0 })
             {
+                ct.ThrowIfCancellationRequested();
                 int idx = Nearest(snaps, frac * total);
                 vm.ScrubIndex = idx;
                 await SettleAsync();
                 var s = snaps[idx];
-                r.Stages.Add((string.Format(Inv, "{0:F0} % stroke · {1:F2} mm · {2:F1} t", 100 * frac, s.Stroke, s.LoadTonnes), Save(FrameCapture.RenderElement(ActiveView, 1.2), Path.Combine(img, string.Format(Inv, "stage_{0:000}pct.png", 100 * frac)))));
+                var units = ImpressionFEA.App.Infrastructure.Units.Current;
+                r.Stages.Add((string.Format(Inv, "{0:F0} % stroke · {1} · {2}", 100 * frac, units.Lf(s.Stroke), units.LoadfN(s.LoadNewton)), Save(FrameCapture.RenderElement(ActiveView, 1.2), Path.Combine(img, string.Format(Inv, "stage_{0:000}pct.png", 100 * frac)))));
             }
         }
 
@@ -244,7 +247,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
         // Video.
         if (o.IncludeVideo)
         {
-            string media = await VideoCoreAsync(new VideoOptions(Path.Combine(o.Folder, "ram_descent.webm"), VideoContent.ViewAndTelemetry, 10, 32, 1.0, false), CancellationToken.None);
+            string media = await VideoCoreAsync(new VideoOptions(Path.Combine(o.Folder, "ram_descent.webm"), VideoContent.ViewAndTelemetry, 10, 32, 1.0, false), ct);
             r.Video = Path.GetFileName(media);
             r.Files.Add((r.Video + (Directory.Exists(media) ? "/" : ""), Directory.Exists(media) ? "Ram descent as PNG frames (FFmpeg not found)" : "Ram descent video (WebM, VP9)"));
         }

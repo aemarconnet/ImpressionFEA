@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -26,7 +26,9 @@ public sealed class TopDieDialog : Window
         var panel = new StackPanel { Margin = new Thickness(18), MaxWidth = 560 };
         panel.Children.Add(new TextBlock
         {
-            Text = Invariant($"{asm.Name}: 3 bodies found. Body {asm.Workpiece.Index + 1} lies between the other two (centre of gravity {asm.OffAxisPercent:F1} % off their axis) and becomes the deforming workpiece; the outer bodies are rigid dies."),
+            Text = asm.Workpiece is { } wp
+                ? Invariant($"{asm.Name}: 3 bodies found. Body {wp.Index + 1} lies between the other two (centre of gravity {asm.OffAxisPercent:F1} % off their axis) and becomes the deforming workpiece; the outer bodies are rigid dies.")
+                : Invariant($"{asm.Name}: 2 bodies found: the dies only. You will define the workpiece (shape, size, rotation and position) on the Basic tab; it starts as a vertical bar sized to 110 % of the cavity volume."),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12),
         });

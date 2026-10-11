@@ -1,4 +1,4 @@
-using ImpressionFEA.App.Infrastructure;
+﻿using ImpressionFEA.App.Infrastructure;
 using ImpressionFEA.Core.Simulation;
 using OxyPlot;
 using OxyPlot.Series;
@@ -25,7 +25,7 @@ public sealed class RunRecord : ObservableObject
             YAxisKey = "load",
             Color = color,
             StrokeThickness = 1.6,
-            ItemsSource = rows.Select(r => new DataPoint(r.Stroke, r.LoadTonnes)).ToList(),
+            ItemsSource = LoadPoints(rows),
         };
         FillSeries = new LineSeries
         {
@@ -35,7 +35,7 @@ public sealed class RunRecord : ObservableObject
             StrokeThickness = 1,
             LineStyle = LineStyle.Dot,
             RenderInLegend = false,
-            ItemsSource = rows.Select(r => new DataPoint(r.Stroke, r.FillPercent)).ToList(),
+            ItemsSource = FillPoints(rows),
         };
     }
 
@@ -74,7 +74,21 @@ public sealed class RunRecord : ObservableObject
         _ => "failed",
     };
 
-    public string Summary => FormattableString.Invariant($"{PeakLoad:F1} t · {FinalFill:F1} % · {StatusText}");
+    public string Summary => Units.Current.Loadf(PeakLoad) + FormattableString.Invariant($" · {FinalFill:F1} % · {StatusText}");
+
+    private static List<DataPoint> LoadPoints(IReadOnlyList<TelemetryRow> rows) =>
+        rows.Select(r => new DataPoint(Units.Current.L(r.Stroke), Units.Current.LoadFromTonnes(r.LoadTonnes))).ToList();
+
+    private static List<DataPoint> FillPoints(IReadOnlyList<TelemetryRow> rows) =>
+        rows.Select(r => new DataPoint(Units.Current.L(r.Stroke), r.FillPercent)).ToList();
+
+    /// <summary>Re-expresses the overlay curves and summary in the current display units.</summary>
+    public void ApplyUnits()
+    {
+        LoadSeries.ItemsSource = LoadPoints(Rows);
+        FillSeries.ItemsSource = FillPoints(Rows);
+        OnPropertyChanged(nameof(Summary));
+    }
 
     /// <summary>Overlay this run's curves on the telemetry chart.</summary>
     public bool IsShown

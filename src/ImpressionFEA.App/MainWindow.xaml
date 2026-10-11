@@ -26,10 +26,9 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="38" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="5" />
-            <RowDefinition Height="170" MinHeight="60" />
+            <RowDefinition Height="*" MinHeight="360" />
+            <RowDefinition Height="9" />
+            <RowDefinition Height="230" MinHeight="90" />
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -41,20 +40,29 @@
                            FontSize="15" VerticalAlignment="Center" />
                 <TextBlock DockPanel.Dock="Left" Text="Closed-die impression forging · rigid-viscoplastic FEM" Foreground="#9AA5B1"
                            Margin="14,0,0,0" VerticalAlignment="Center" />
-                <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#9AA5B1"
-                           FontFamily="{StaticResource Mono}" FontSize="11" Text="{Binding EngineName}" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="Units" Foreground="#9AA5B1" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox Width="86" ItemsSource="{Binding UnitOptions}" SelectedItem="{Binding SelectedUnits}"
+                              ToolTip="US: inches, ksi, tonf, °F (3 decimals) · Metric: mm, MPa, t, °C (2 decimals). The solver and CSV files always use mm, MPa, t, °C." />
+                    <TextBlock Margin="16,0,0,0" Foreground="#9AA5B1" FontFamily="{StaticResource Mono}" FontSize="11" Text="{Binding EngineName}" VerticalAlignment="Center" />
+                </StackPanel>
             </DockPanel>
         </Border>
 
         <!-- Main area -->
         <Grid Grid.Row="1" Margin="8,8,8,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="330" />
+                <ColumnDefinition Width="330" MinWidth="250" MaxWidth="640" />
                 <ColumnDefinition Width="8" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" MinWidth="380" />
                 <ColumnDefinition Width="8" />
-                <ColumnDefinition Width="400" />
+                <ColumnDefinition Width="400" MinWidth="300" MaxWidth="900" />
             </Grid.ColumnDefinitions>
+            <!-- Drag handles between the panels -->
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeBehavior="PreviousAndNext"
+                          ResizeDirection="Columns" Background="Transparent" Cursor="SizeWE" ToolTip="Drag to resize" Style="{StaticResource Splitter}" />
+            <GridSplitter Grid.Column="3" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeBehavior="PreviousAndNext"
+                          ResizeDirection="Columns" Background="Transparent" Cursor="SizeWE" ToolTip="Drag to resize" Style="{StaticResource Splitter}" />
 
             <!-- 1. Input / configuration -->
             <Border Style="{StaticResource Panel}">
@@ -111,12 +119,42 @@
                                         </Border>
                                         <TextBlock Text="{Binding SourceText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" FontSize="10.5"
                                                    Visibility="{Binding CanReimport, Converter={StaticResource BoolToVis}}" />
+                                        <!-- Die-only imports: the user-defined workpiece -->
+                                        <Border Margin="0,8,0,2" Padding="8,4,8,8" BorderThickness="1" BorderBrush="{StaticResource PanelBorder}" Background="{StaticResource SectionBg}"
+                                                Visibility="{Binding IsUserBillet, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel>
+                                                <TextBlock Text="Workpiece (you define it)" FontWeight="SemiBold" Margin="0,2,0,4" />
+                                                <ComboBox ItemsSource="{Binding WorkpieceShapes}" SelectedItem="{Binding WorkpieceShape}"
+                                                          ToolTip="VerticalBar: round bar on end · HorizontalBar: round bar lying flat · Block: rectangular block" />
+                                                <StackPanel Visibility="{Binding WorkpieceIsBar, Converter={StaticResource BoolToVis}}">
+                                                    <c:NumericField Label="Diameter D" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceDiameterU}" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="{Binding WorkpieceLengthLabel}" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceLengthU}" Format="{Binding LengthFormat}" />
+                                                </StackPanel>
+                                                <StackPanel Visibility="{Binding WorkpieceIsBlock, Converter={StaticResource BoolToVis}}">
+                                                    <c:NumericField Label="Width (x)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceWidthU}" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="Depth (y)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceDepthU}" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="Height (z)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceHeightU}" Format="{Binding LengthFormat}" />
+                                                </StackPanel>
+                                                <c:NumericField Label="Rotation about press axis" Unit="°" Value="{Binding WorkpieceAngle}" Format="F1"
+                                                                IsEnabled="{Binding WorkpieceCanRotate}" ToolTip="0° = bar / block aligned with x" />
+                                                <c:NumericField Label="Position X" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetXU}" Format="{Binding LengthFormat}"
+                                                                ToolTip="Plan position of the workpiece centre; 0 = centre of the bottom die" />
+                                                <c:NumericField Label="Position Y" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetYU}" Format="{Binding LengthFormat}" />
+                                                <DockPanel Margin="0,6,0,0">
+                                                    <Button DockPanel.Dock="Right" Content="Size to cavity +10 %" Command="{Binding SizeWorkpieceFromCavityCommand}"
+                                                            Style="{StaticResource FlatButton}" Padding="8,2"
+                                                            ToolTip="Keep the diameter (or block plan size) and set the length (or height) to 110 % of the closed cavity volume" />
+                                                    <TextBlock Text="{Binding WorkpieceVolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" VerticalAlignment="Center" />
+                                                </DockPanel>
+                                                <TextBlock Style="{StaticResource Note}" Text="The workpiece is dropped onto the bottom die; the top die starts at first contact." />
+                                            </StackPanel>
+                                        </Border>
                                         <TextBlock Text="{Binding DieDescription}" Style="{StaticResource Note}" />
                                         <TextBlock Text="{Binding SymmetryText}" Style="{StaticResource Note}" />
                                         <StackPanel Visibility="{Binding BilletEditable, Converter={StaticResource BoolToVis}}">
-                                            <c:NumericField Label="{Binding RadiusLabel}" Unit="mm" Value="{Binding BilletRadius}" Format="F2" />
-                                            <c:NumericField Label="Billet height H" Unit="mm" Value="{Binding BilletHeight}" Format="F2" IsEnabled="{Binding HeightEnabled}" />
-                                            <c:NumericField Label="{Binding LengthLabel}" Unit="mm" Value="{Binding BilletLength}" Format="F1"
+                                            <c:NumericField Label="{Binding RadiusLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletRadiusU}" Format="{Binding LengthFormat}" />
+                                            <c:NumericField Label="Billet height H" Unit="{Binding LengthUnit}" Value="{Binding BilletHeightU}" Format="{Binding LengthFormat}" IsEnabled="{Binding HeightEnabled}" />
+                                            <c:NumericField Label="{Binding LengthLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletLengthU}" Format="{Binding LengthFormat}"
                                                             IsEnabled="{Binding LengthEnabled}" ToolTip="Plane strain: out-of-plane length. 3D bar: bar length." />
                                         </StackPanel>
                                         <TextBlock Text="{Binding VolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
@@ -124,18 +162,18 @@
                                         <TextBlock Text="Material" Style="{StaticResource SectionHeader}" />
                                         <ComboBox ItemsSource="{Binding Materials}" SelectedItem="{Binding SelectedMaterial}" />
                                         <TextBlock Text="σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ, isothermal" Style="{StaticResource Note}" />
-                                        <c:NumericField Label="Temperature T" Unit="°C" Value="{Binding Temperature}" Format="F0" />
+                                        <c:NumericField Label="Temperature T" Unit="{Binding TemperatureUnit}" Value="{Binding TemperatureU}" Format="F0" />
                                         <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Format="F2"
                                                         ToolTip="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
                                         <TextBlock Text="{Binding MaterialText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <TextBlock Text="Mesh" Style="{StaticResource SectionHeader}" />
-                                        <c:NumericField Label="Target element size h" Unit="mm" Value="{Binding ElementSize}" Format="F2" />
+                                        <c:NumericField Label="Target element size h" Unit="{Binding LengthUnit}" Value="{Binding ElementSizeU}" Format="{Binding FineLengthFormat}" />
                                         <TextBlock Text="{Binding MeshText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <TextBlock Text="Press" Style="{StaticResource SectionHeader}" />
-                                        <c:NumericField Label="Ram speed v" Unit="mm/s" Value="{Binding RamSpeed}" Format="F1" />
-                                        <c:NumericField Label="Press capacity" Unit="t" Value="{Binding PressCapacity}" Format="F0" />
+                                        <c:NumericField Label="Ram speed v" Unit="{Binding SpeedUnit}" Value="{Binding RamSpeedU}" Format="{Binding LengthFormat}" />
+                                        <c:NumericField Label="Press capacity" Unit="{Binding LoadUnit}" Value="{Binding PressCapacityU}" Format="{Binding LoadInputFormat}" />
                                         <TextBlock Text="{Binding PressText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <Border Margin="0,12,0,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Warn}" Background="#FFF8EC"
@@ -152,7 +190,7 @@
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Margin="8,0,8,12" IsEnabled="{Binding CanEdit}">
                                     <TextBlock Text="Increment" Style="{StaticResource SectionHeader}" />
-                                    <c:NumericField Label="Stroke increment Δs" Unit="mm" Value="{Binding StrokeIncrement}" Format="F3" />
+                                    <c:NumericField Label="Stroke increment Δs" Unit="{Binding LengthUnit}" Value="{Binding StrokeIncrementU}" Format="{Binding FineLengthFormat}" />
                                     <TextBlock Style="{StaticResource Note}" Text="Nominal ram travel per increment (≤ 0.4·h). With auto time-stepping the solver shrinks it where needed and grows it back." />
 
                                     <TextBlock Text="Robustness (3D solver)" Style="{StaticResource SectionHeader}" />
@@ -259,29 +297,119 @@
                                 </ContextMenu>
                             </Button.ContextMenu>
                         </Button>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <StackPanel Orientation="Horizontal" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}">
-                                <CheckBox Content="Mesh" IsChecked="{Binding ShowMesh}" />
-                                <CheckBox Content="Mirror" IsChecked="{Binding Mirror}" />
-                                <CheckBox Content="Contact nodes" IsChecked="{Binding ShowContact}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Visibility="{Binding Is3D, Converter={StaticResource BoolToVis}}">
-                                <CheckBox Content="Cut-away" IsChecked="{Binding CutAway}" IsEnabled="{Binding IsPlaneStrain, Converter={StaticResource Not}}"
-                                          ToolTip="Remove a 90° sector to expose the internal section (axisymmetric parts)" />
-                                <CheckBox Content="Dies" IsChecked="{Binding ShowDies}" />
-                                <CheckBox Content="Edges" IsChecked="{Binding ShowEdges}" ToolTip="Show the element edges on the part surface and section" />
-                                <ComboBox Width="88" Margin="6,0,0,0" ItemsSource="{Binding LightingOptions}" SelectedItem="{Binding Lighting}"
-                                          ToolTip="Lighting: Uniform = ambient only, no shading (colours match the colour bar); Soft / Shaded add a headlight" />
-                            </StackPanel>
-                        </StackPanel>
+                        <!-- View panel: every display setting in one live-updating popup -->
+                        <ToggleButton x:Name="ViewToggle" DockPanel.Dock="Right" Content="View ▾" Padding="10,3" Margin="12,0,0,0"
+                                      ToolTip="Bodies, transparency, lighting, cut-away, mesh edges, die contact and flow arrows (changes apply live)" />
+                        <Popup PlacementTarget="{Binding ElementName=ViewToggle}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
+                               IsOpen="{Binding IsChecked, ElementName=ViewToggle}" PopupAnimation="Fade" HorizontalOffset="-250">
+                            <Border Background="White" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Padding="12,8,12,12" Width="320" Margin="0,0,8,8">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.25" />
+                                </Border.Effect>
+                                <StackPanel>
+                                    <StackPanel.Resources>
+                                        <Style TargetType="Slider">
+                                            <Setter Property="Margin" Value="0,2,0,4" />
+                                            <Setter Property="IsMoveToPointEnabled" Value="True" />
+                                        </Style>
+                                        <Style TargetType="CheckBox">
+                                            <Setter Property="Margin" Value="0,3,0,3" />
+                                        </Style>
+                                    </StackPanel.Resources>
+
+                                    <TextBlock Text="Workpiece colours" Style="{StaticResource SectionHeader}" Margin="0,2,0,2" />
+                                    <CheckBox Content="Colour map of the result field" IsChecked="{Binding ColorMap}"
+                                              ToolTip="Off: show the workpiece deforming as a plain solid, without contour colours" />
+
+                                    <!-- 3D view -->
+                                    <StackPanel Visibility="{Binding Is3D, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Bodies" Style="{StaticResource SectionHeader}" Margin="0,2,0,2" />
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding PartOpacity, StringFormat={}{0:P0}}" />
+                                            <CheckBox Content="Workpiece" IsChecked="{Binding PartVisible}" />
+                                        </DockPanel>
+                                        <Slider Minimum="0.05" Maximum="1" Value="{Binding PartOpacity}" ToolTip="Workpiece opacity" />
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding TopDieOpacity, StringFormat={}{0:P0}}" />
+                                            <CheckBox Content="Top die" IsChecked="{Binding TopDieVisible}" />
+                                        </DockPanel>
+                                        <Slider Minimum="0.05" Maximum="1" Value="{Binding TopDieOpacity}" ToolTip="Top die opacity" IsEnabled="{Binding TopDieVisible}" />
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding BottomDieOpacity, StringFormat={}{0:P0}}" />
+                                            <CheckBox Content="Bottom die" IsChecked="{Binding BottomDieVisible}" />
+                                        </DockPanel>
+                                        <Slider Minimum="0.05" Maximum="1" Value="{Binding BottomDieOpacity}" ToolTip="Bottom die opacity" IsEnabled="{Binding BottomDieVisible}" />
+
+                                        <TextBlock Text="Layout" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
+                                        <CheckBox Content="Four views: Top · Isometric · Front · Right" IsChecked="{Binding QuadView}"
+                                                  ToolTip="Orthographic Top (top-left), Front (bottom-left) and Right (bottom-right) views with the interactive isometric view top-right" />
+
+                                        <TextBlock Text="Lighting" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
+                                        <ComboBox ItemsSource="{Binding LightingOptions}" SelectedItem="{Binding Lighting}"
+                                                  ToolTip="Uniform = ambient only, no shading (colours match the colour bar); Soft / Shaded add a headlight" />
+
+                                        <TextBlock Text="Cut-away" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
+                                        <DockPanel>
+                                            <CheckBox DockPanel.Dock="Left" Content="Section through" IsChecked="{Binding CutAway}" VerticalAlignment="Center" />
+                                            <ComboBox Width="52" Margin="8,0,0,0" ItemsSource="{Binding CutAxisOptions}" SelectedItem="{Binding CutAxis}" IsEnabled="{Binding CutAway}"
+                                                      ToolTip="Normal of the section plane: Y = front / back cut, X = left / right cut" />
+                                            <CheckBox Content="Flip" IsChecked="{Binding CutFlip}" Margin="10,0,0,0" VerticalAlignment="Center" IsEnabled="{Binding CutAway}"
+                                                      ToolTip="Remove the other side" />
+                                        </DockPanel>
+                                        <DockPanel IsEnabled="{Binding CutAway}">
+                                            <TextBlock DockPanel.Dock="Left" Text="Offset" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                            <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding CutOffset, StringFormat={}{0:P0}}" VerticalAlignment="Center" />
+                                            <Slider Minimum="-1" Maximum="1" Value="{Binding CutOffset}" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                                    ToolTip="Section plane position, as a fraction of the half-width (0 = through the press axis)" />
+                                        </DockPanel>
+
+                                        <TextBlock Text="Display" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
+                                        <CheckBox Content="Element edges (surface triangles of the tetrahedra)" IsChecked="{Binding ShowEdges}"
+                                                  ToolTip="The 3D mesh is 4-node tetrahedra; on the surface you see their triangular faces, often four around a vertex (a pyramid pattern from the BCC lattice the mesher uses)" />
+                                        <CheckBox Content="Die contact (amber bottom · magenta top)" IsChecked="{Binding ShowContact}" />
+                                    </StackPanel>
+
+                                    <!-- 2D section -->
+                                    <StackPanel Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Section" Style="{StaticResource SectionHeader}" Margin="0,2,0,2" />
+                                        <CheckBox Content="Element mesh (4-node quadrilaterals)" IsChecked="{Binding ShowMesh}" />
+                                        <CheckBox Content="Mirror about the axis" IsChecked="{Binding Mirror}" />
+                                        <CheckBox Content="Die contact (amber bottom · magenta top)" IsChecked="{Binding ShowContact}" />
+                                    </StackPanel>
+
+                                    <!-- Flow arrows (both views) -->
+                                    <TextBlock Text="Flow arrows" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
+                                    <CheckBox Content="Show material velocity arrows" IsChecked="{Binding ShowVelocity}"
+                                              ToolTip="In 3D the part is drawn as a ghost so the arrows inside are visible" />
+                                    <DockPanel IsEnabled="{Binding ShowVelocity}">
+                                        <TextBlock DockPanel.Dock="Left" Text="Density" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                        <TextBlock DockPanel.Dock="Right" Text="sparse" Width="40" TextAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource Muted}" FontSize="11" />
+                                        <Slider Minimum="0.6" Maximum="4" Value="{Binding ArrowSpacing}" ToolTip="Arrow spacing in element sizes: left = dense, right = sparse" />
+                                    </DockPanel>
+                                    <DockPanel IsEnabled="{Binding ShowVelocity}">
+                                        <TextBlock DockPanel.Dock="Left" Text="Size" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                        <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding ArrowScale, StringFormat={}{0:F1}×}" VerticalAlignment="Center" />
+                                        <Slider Minimum="0.3" Maximum="3" Value="{Binding ArrowScale}" ToolTip="Arrow length and thickness" />
+                                    </DockPanel>
+
+                                    <Button Content="Reset view" Command="{Binding ResetViewCommand}" Style="{StaticResource FlatButton}" Padding="10,2"
+                                            HorizontalAlignment="Left" Margin="0,10,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                        <Border />
                     </DockPanel>
                     <Border Grid.Row="1" Background="{StaticResource PanelBorder}" />
                     <c:FieldViewport x:Name="View2D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}"
                                      Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                      RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
-                                     ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}"
+                                     ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}" ShowVelocity="{Binding ShowVelocity}" Units="{Binding SelectedUnits}"
+                                     ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}"
                                      ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}" />
-                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" Lighting="{Binding Lighting}" Die="{Binding ActiveDie2D}" Die3D="{Binding ActiveDie3D}" Bounds3D="{Binding Bounds3D}"
+                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
+                                       PartVisible="{Binding PartVisible}" PartOpacity="{Binding PartOpacity}" BottomDieVisible="{Binding BottomDieVisible}"
+                                       TopDieVisible="{Binding TopDieVisible}" BottomDieOpacity="{Binding BottomDieOpacity}" TopDieOpacity="{Binding TopDieOpacity}" QuadView="{Binding QuadView}" CutAxis="{Binding CutAxis}" CutFlip="{Binding CutFlip}"
+                                       CutOffset="{Binding CutOffset}" ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}" Die="{Binding ActiveDie2D}" Die3D="{Binding ActiveDie3D}" Bounds3D="{Binding Bounds3D}"
                                        Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                        RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
                                        CutAway="{Binding CutAway}" ShowDies="{Binding ShowDies}" PartLength="{Binding BilletLength}"
@@ -294,9 +422,31 @@
                         </Grid.RowDefinitions>
                         <TextBlock Text="RAM DESCENT / STEP" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}" />
                         <TextBlock HorizontalAlignment="Right" Text="{Binding ScrubText}" FontFamily="{StaticResource Mono}" FontSize="11" />
-                        <Slider Grid.Row="1" Margin="0,4,0,0" Minimum="0" Maximum="{Binding ScrubMaximum}" Value="{Binding ScrubIndex}"
-                                IsEnabled="{Binding CanScrub}" IsSnapToTickEnabled="True" TickFrequency="1" SmallChange="1" LargeChange="10"
-                                IsMoveToPointEnabled="True" />
+                        <DockPanel Grid.Row="1" Margin="0,4,0,0">
+                            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                                <StackPanel.Resources>
+                                    <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                        <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                                        <Setter Property="FontSize" Value="12" />
+                                        <Setter Property="Padding" Value="7,4" />
+                                        <Setter Property="Margin" Value="0,0,3,0" />
+                                        <Setter Property="FontWeight" Value="Normal" />
+                                    </Style>
+                                </StackPanel.Resources>
+                                <Button Content="&#xE892;" Command="{Binding FirstCommand}" ToolTip="First increment" />
+                                <Button Content="&#xE76B;" Command="{Binding StepBackCommand}" ToolTip="Previous increment" />
+                                <Button Content="{Binding PlayGlyph}" Command="{Binding PlayPauseCommand}" ToolTip="{Binding PlayTip}" Padding="10,4" />
+                                <Button Content="&#xE76C;" Command="{Binding StepForwardCommand}" ToolTip="Next increment" />
+                                <Button Content="&#xE893;" Command="{Binding LastCommand}" ToolTip="Last increment" />
+                                <ToggleButton Content="&#xE8EE;" IsChecked="{Binding LoopPlayback}" FontFamily="Segoe MDL2 Assets" Padding="7,4" Margin="2,0,3,0"
+                                              ToolTip="Loop playback" />
+                                <ComboBox ItemsSource="{Binding PlaybackRates}" SelectedItem="{Binding PlaybackRate}" Width="52" Margin="2,0,10,0"
+                                          ToolTip="Playback speed: increments per second" />
+                            </StackPanel>
+                            <Slider Minimum="0" Maximum="{Binding ScrubMaximum}" Value="{Binding ScrubIndex}" VerticalAlignment="Center"
+                                    IsEnabled="{Binding CanScrub}" IsSnapToTickEnabled="True" TickFrequency="1" SmallChange="1" LargeChange="10"
+                                    IsMoveToPointEnabled="True" />
+                        </DockPanel>
                     </Grid>
                 </Grid>
             </Border>
@@ -335,8 +485,17 @@
                         <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding ReadMesh}" Style="{StaticResource ReadValue}" />
                     </Grid>
                     <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource PanelBorder}" />
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" MinHeight="150" />
+                            <RowDefinition Height="7" />
+                            <RowDefinition Height="200" MinHeight="90" />
+                        </Grid.RowDefinitions>
+                    <oxy:PlotView x:Name="LoadChart" Grid.Row="0" Model="{Binding LoadPlot}" Margin="4" Background="Transparent" />
+                        <GridSplitter Grid.Row="1" Height="7" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"
+                                      ResizeBehavior="PreviousAndNext" Background="Transparent" Cursor="SizeNS" ToolTip="Drag to resize chart and run list" Style="{StaticResource Splitter}" />
                     <!-- Run history: every finished run, overlaid on the chart when ticked -->
-                    <DockPanel DockPanel.Dock="Bottom" Margin="10,6,10,6" Height="196">
+                    <DockPanel Grid.Row="2" Margin="10,2,10,6">
                         <DockPanel DockPanel.Dock="Top">
                             <TextBlock Text="RUNS" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -354,7 +513,8 @@
                                 <Button Content="Save all…" Click="SaveAllTelemetry_Click" IsEnabled="{Binding HasRuns}"
                                         ToolTip="Save every run's telemetry and a summary.csv into a folder" />
                                 <Button Content="Show/hide" Command="{Binding ShowAllRunsCommand}" ToolTip="Show or hide all overlays" />
-                                <Button Content="Clear" Command="{Binding ClearRunsCommand}" />
+                                <Button Content="Reset" Command="{Binding ResetCommand}"
+                                        ToolTip="Start fresh: clear every run, the chart overlays, the current results and the log (setup inputs are kept)" />
                             </StackPanel>
                         </DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="{Binding SweepText}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" FontSize="11"
@@ -379,14 +539,22 @@
                                        Visibility="{Binding HasRuns, Converter={StaticResource NotBoolToVis}}" />
                         </Grid>
                     </DockPanel>
-                    <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource PanelBorder}" />
-                    <oxy:PlotView x:Name="LoadChart" Model="{Binding LoadPlot}" Margin="4" Background="Transparent" />
+                    </Grid>
                 </DockPanel>
             </Border>
         </Grid>
 
+        <GridSplitter Grid.Row="2" Height="9" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
+                      Background="Transparent" Cursor="SizeNS" ToolTip="Drag to resize the solver log" Style="{StaticResource Splitter}" />
+
+        <!-- Bottom block: the execution bar keeps its height; the log takes whatever the drag handle gives it. -->
+        <Grid Grid.Row="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
         <!-- 2. Execution & status bar -->
-        <Border Grid.Row="2" Margin="8,8,8,0" Style="{StaticResource Panel}" Padding="8,6">
+        <Border Grid.Row="0" Margin="8,0,8,0" Style="{StaticResource Panel}" Padding="8,6">
             <DockPanel LastChildFill="True">
                 <Button DockPanel.Dock="Left" Content="Solve FEA Simulation" Command="{Binding SolveCommand}" Style="{StaticResource PrimaryButton}" />
                 <Button DockPanel.Dock="Left" Content="Abort" Command="{Binding AbortCommand}" Style="{StaticResource FlatButton}" Margin="6,0,0,0" />
@@ -432,13 +600,12 @@
             </DockPanel>
         </Border>
 
-        <GridSplitter Grid.Row="3" HorizontalAlignment="Stretch" Background="Transparent" ResizeDirection="Rows" />
-
         <!-- Live solver log -->
-        <Border Grid.Row="4" Margin="8,0,8,8" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Background="{StaticResource LogBg}">
+        <Border Grid.Row="1" Margin="8,6,8,8" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Background="{StaticResource LogBg}">
             <TextBox x:Name="LogBox" IsReadOnly="True" Background="Transparent" Foreground="{StaticResource LogText}" BorderThickness="0"
                      FontFamily="{StaticResource Mono}" FontSize="11.5" Padding="8,6" VerticalScrollBarVisibility="Auto"
                      HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" IsUndoEnabled="False" />
         </Border>
+        </Grid>
     </Grid>
 </Window>

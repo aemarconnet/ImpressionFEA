@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -58,13 +58,15 @@ public sealed class MultiRunDialog : Window
         _folder = new TextBox
         {
             Padding = new Thickness(4, 3, 4, 3),
-            Text = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ImpressionFEA", "MultiRun " + DateTime.Now.ToString("yyyy-MM-dd HHmm", CultureInfo.InvariantCulture)),
+            Text = System.IO.Path.Combine(
+                Infrastructure.AppSettings.Folder("multirun") is { } last ? System.IO.Path.GetDirectoryName(last) ?? last : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ImpressionFEA"),
+                "MultiRun " + DateTime.Now.ToString("yyyy-MM-dd HHmm", CultureInfo.InvariantCulture)),
         };
         folderRow.Children.Add(_folder);
         panel.Children.Add(folderRow);
         browse.Click += (_, _) =>
         {
-            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Folder for multi-run telemetry" };
+            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Folder for multi-run telemetry", InitialDirectory = Infrastructure.AppSettings.Folder("multirun") ?? "" };
             if (dlg.ShowDialog(this) == true)
             {
                 _folder.Text = dlg.FolderName;

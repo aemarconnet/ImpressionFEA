@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -109,7 +109,7 @@ public sealed class VideoExportDialog : Window
         p.Children.Add(grid);
         p.Children.Add(_telemetry);
         p.Children.Add(DialogUi.Label("File", 12));
-        var (row, box) = DialogUi.PathRow(Path.Combine(DialogUi.DefaultFolder(), baseName + ".webm"), cur =>
+        var (row, box) = DialogUi.PathRow(Path.Combine(Infrastructure.AppSettings.Folder("video", DialogUi.DefaultFolder())!, baseName + ".webm"), cur =>
         {
             var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "WebM video (*.webm)|*.webm", FileName = Path.GetFileName(cur), InitialDirectory = Path.GetDirectoryName(cur) };
             return dlg.ShowDialog(this) == true ? dlg.FileName : null;
@@ -164,9 +164,9 @@ public sealed class ReportDialog : Window
         if (FfmpegLocator.Find() is null) p.Children.Add(DialogUi.Note("FFmpeg not found: the video is saved as PNG frames."));
         p.Children.Add(_open);
         p.Children.Add(DialogUi.Label("Folder", 12));
-        var (row, box) = DialogUi.PathRow(Path.Combine(DialogUi.DefaultFolder(), baseName), cur =>
+        var (row, box) = DialogUi.PathRow(Path.Combine(Infrastructure.AppSettings.Folder("report", DialogUi.DefaultFolder())!, baseName), cur =>
         {
-            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Parent folder for the report" };
+            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Parent folder for the report", InitialDirectory = Path.GetDirectoryName(cur) ?? "" };
             return dlg.ShowDialog(this) == true ? Path.Combine(dlg.FolderName, Path.GetFileName(cur)) : null;
         });
         _folder = box;

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ImpressionFEA.Core.Simulation;
@@ -25,6 +25,15 @@ public static class ContourPalette
         var bmp = BitmapSource.Create(Bands, 1, 96, 96, PixelFormats.Pbgra32, null, Colors, Bands * 4);
         bmp.Freeze();
         return bmp;
+    }
+
+    /// <summary>Colour-bar label of an internal field value in the current display units (stress: ksi / MPa at fixed decimals).</summary>
+    public static string Label(double v, ResultField field)
+    {
+        var u = ImpressionFEA.App.Infrastructure.Units.Current;
+        return field is ResultField.VonMisesStress or ResultField.MeanStress
+            ? u.S(v).ToString(u.StressFormat, CultureInfo.InvariantCulture)
+            : Format(v);
     }
 
     public static string Format(double v)

@@ -1,4 +1,4 @@
-using ImpressionFEA.Core.Geometry;
+﻿using ImpressionFEA.Core.Geometry;
 using ImpressionFEA.Core.ThreeD;
 
 namespace ImpressionFEA.Core.Cad;
@@ -18,7 +18,7 @@ public sealed class ForgingAssembly
     {
         Name = name;
         Bodies = bodies;
-        Workpiece = bodies[workpiece];
+        Workpiece = workpiece >= 0 ? bodies[workpiece] : null;
         DieA = bodies[dieA];
         DieB = bodies[dieB];
         OffAxisPercent = offAxis;
@@ -28,7 +28,11 @@ public sealed class ForgingAssembly
 
     public IReadOnlyList<CadBody> Bodies { get; }
 
-    public CadBody Workpiece { get; }
+    /// <summary>The deforming body, or null for a die-only file (the user defines the workpiece).</summary>
+    public CadBody? Workpiece { get; }
+
+    /// <summary>The file holds only the two dies; the workpiece is a <see cref="UserBillet"/>.</summary>
+    public bool IsDieOnly => Workpiece is null;
 
     /// <summary>The two outer bodies (rigid dies), in file order.</summary>
     public CadBody DieA { get; }
@@ -62,12 +66,22 @@ public sealed class ForgingAssembly
         }
     }
 
-    /// <summary>Classifies exactly three solids by their centres of gravity.</summary>
+    /// <summary>
+    /// Classifies the solids by their centres of gravity: three bodies = bottom die, workpiece, top die (the middle one
+    /// is the workpiece); two bodies = the dies only (the workpiece is then defined by the user).
+    /// </summary>
     public static ForgingAssembly Classify(string name, IReadOnlyList<CadBody> bodies)
     {
         ArgumentNullException.ThrowIfNull(bodies);
+        if (bodies.Count == 2)
+        {
+            if ((bodies[1].CenterOfGravity - bodies[0].CenterOfGravity).Length < 1e-6)
+                throw new InvalidDataException("The two dies share the same centre of gravity; the press axis cannot be determined.");
+            return new ForgingAssembly(name, bodies, -1, 0, 1, 0);
+        }
+
         if (bodies.Count != 3)
-            throw new InvalidDataException($"The STEP file contains {bodies.Count} solid bodies; exactly 3 are needed (bottom die, workpiece, top die).");
+            throw new InvalidDataException($"The STEP file contains {bodies.Count} solid bodies; 3 are needed (bottom die, workpiece, top die), or 2 (the dies only, with a workpiece you define).");
         int mid = 0;
         double best = double.MaxValue;
         for (int i = 0; i < 3; i++)
@@ -115,23 +129,26 @@ public sealed class ForgingAssembly
     /// Builds the 3D die set: rotates the press axis onto +z, centres the workpiece COG on the z axis, and moves the
     /// top die down to the closed position (where it first touches the bottom die).
     /// </summary>
-    public DieSet3D BuildDieSet(CadBody top, Action<string>? log = null)
+    public DieSet3D BuildDieSet(CadBody top, Action<string>? log = null, UserBillet? userBillet = null)
     {
         ArgumentNullException.ThrowIfNull(top);
+        if (IsDieOnly && userBillet is null) throw new ArgumentException("A die-only file needs a user-defined workpiece.", nameof(userBillet));
         if (top != DieA && top != DieB) throw new ArgumentException("The top die must be one of the two outer bodies.", nameof(top));
         log ??= _ => { };
         var bottom = top == DieA ? DieB : DieA;
         var axis = PressAxis(top, out bool snapped);
         var rot = RotationOnto(axis);
-        var c = rot(Workpiece.CenterOfGravity);
+        // Centre the model on the workpiece (or, for die-only files, on the bottom die).
+        var c = rot(Workpiece?.CenterOfGravity ?? bottom.CenterOfGravity);
         Vec3 Map(Vec3 p)
         {
             var q = rot(p);
             return new Vec3(q.X - c.X, q.Y - c.Y, q.Z);
         }
 
-        var work = Workpiece.Mesh.Transformed(Map);
         var bot = new TriMeshDie(DieSide.Bottom, bottom.Mesh.Transformed(Map));
+        // A user workpiece starts just above the bottom die; it is dropped onto it like an imported one.
+        var work = Workpiece?.Mesh.Transformed(Map) ?? userBillet!.ToSolid(bot.BoundsMax.Z + 1);
         var topOpen = top.Mesh.Transformed(Map);
         double closure = ClosureDistance(bot, new TriMeshDie(DieSide.Top, topOpen));
         if (!double.IsFinite(closure))
@@ -143,24 +160,26 @@ public sealed class ForgingAssembly
         double xMin = Math.Min(bot.BoundsMin.X, topClosed.BoundsMin.X), xMax = Math.Max(bot.BoundsMax.X, topClosed.BoundsMax.X);
         double yMax = Math.Max(Math.Max(-bot.BoundsMin.Y, bot.BoundsMax.Y), Math.Max(-topClosed.BoundsMin.Y, topClosed.BoundsMax.Y));
         var outline = ImpressionOutline(bot, topClosed, xMin, xMax, yMax);
-        double thin = Math.Min(work.Max.X - work.Min.X, Math.Min(work.Max.Y - work.Min.Y, work.Max.Z - work.Min.Z));
-        double hNodes = Math.Cbrt(2.2 * work.Volume / (0.75 * SimulationConfig3D.MaxNodes));
-        double h = Math.Round(Math.Max(Math.Min(thin / 6, 4), hNodes) * 4) / 4;
-        h = Math.Max(h, 0.25);
+        double h = RecommendedElementSize(work);
 
         var axisText = snapped ? AxisName(axis) : $"({axis.X:F3}, {axis.Y:F3}, {axis.Z:F3})";
-        log($"STEP import  : {Name}: workpiece = body {Workpiece.Index + 1} ({Workpiece.Volume / 1000:F2} cm³), top die = body {top.Index + 1}, bottom die = body {bottom.Index + 1}");
+        log(Workpiece is { } wp
+            ? $"STEP import  : {Name}: workpiece = body {wp.Index + 1} ({wp.Volume / 1000:F2} cm³), top die = body {top.Index + 1}, bottom die = body {bottom.Index + 1}"
+            : $"STEP import  : {Name}: dies only; top die = body {top.Index + 1}, bottom die = body {bottom.Index + 1}; user workpiece {userBillet!.Shape} ({userBillet.Volume / 1000:F2} cm³)");
         log($"Press axis   : file {axisText}{(snapped ? " (snapped)" : "")}; workpiece COG {OffAxisPercent:F1} % off the die COG line; top die closes after {closure:F3} mm travel");
 
         return new DieSet3D
         {
             Name = $"Imported: {Name}",
-            Description = $"STEP import. Workpiece body {Workpiece.Index + 1} ({Workpiece.Volume / 1000:F1} cm³) between rigid dies; top die body {top.Index + 1} moves along {axisText} until it touches the bottom die (body {bottom.Index + 1}). Full model, no symmetry.",
+            Description = Workpiece is { } w
+                ? $"STEP import. Workpiece body {w.Index + 1} ({w.Volume / 1000:F1} cm³) between rigid dies; top die body {top.Index + 1} moves along {axisText} until it touches the bottom die (body {bottom.Index + 1}). Full model, no symmetry."
+                : $"STEP import of the dies only (top die body {top.Index + 1} moves along {axisText}). The workpiece is defined below: shape, size, rotation and position. Full model, no symmetry.",
             Bottom = bot,
             TopClosed = topClosed,
             Symmetry = Symmetry3D.None,
             Billet = BilletShape.Imported,
             ImportedBillet = work,
+            UserBilletInit = userBillet,
             Outline = outline,
             XMin = xMin,
             XMax = xMax,
@@ -170,6 +189,16 @@ public sealed class ForgingAssembly
             RecommendedElementSize = h,
             RecommendedStrokeIncrement = Math.Round(0.2 * h, 2),
         };
+    }
+
+    /// <summary>Element size giving about six elements across the thinnest workpiece dimension, within the default node budget.</summary>
+    public static double RecommendedElementSize(TriMeshSolid work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        double thin = Math.Min(work.Max.X - work.Min.X, Math.Min(work.Max.Y - work.Min.Y, work.Max.Z - work.Min.Z));
+        double hNodes = Math.Cbrt(2.2 * Math.Abs(work.Volume) / (0.75 * SimulationConfig3D.MaxNodes));
+        double h = Math.Round(Math.Max(Math.Min(thin / 6, 4), hNodes) * 4) / 4;
+        return Math.Max(h, 0.25);
     }
 
     private static string AxisName(Vec3 a) => (a.X != 0 ? (a.X > 0 ? "+X" : "−X") : a.Y != 0 ? (a.Y > 0 ? "+Y" : "−Y") : a.Z > 0 ? "+Z" : "−Z");

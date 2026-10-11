@@ -91,7 +91,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     private bool _mirror = true;
     private bool _showContact;
     private bool _is3D;
-    private bool _cutAway = true;
+    private bool _cutAway;
     private bool _showDies = true;
     private ForgingSnapshot? _currentSnapshot;
     private ForgingSnapshot? _preview;
@@ -132,6 +132,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         _timer.Start();
         RefreshDerived();
         LoadDemos();
+        InitUnits();
         _ = ProbeBackendsAsync();
     }
 
@@ -244,13 +245,17 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         get => _pressCapacity;
         set
         {
-            if (Set(ref _pressCapacity, value)) UpdateCapacityLine();
+            if (!Set(ref _pressCapacity, value)) return;
+            OnPropertyChanged(nameof(PressCapacityU));
+            UpdateCapacityLine();
         }
     }
 
     private void SetInput(ref double field, double value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
     {
-        if (Set(ref field, value, name)) RefreshDerived();
+        if (!Set(ref field, value, name)) return;
+        OnPropertyChanged(name + "U"); // the display-unit twin of the input
+        RefreshDerived();
     }
 
     private bool IsBar => _analysis3D && _selectedDie3D.Billet == BilletShape.HorizontalBar;
@@ -418,12 +423,12 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             var cfg = BuildConfig3D();
             double vb = _selectedDie3D.BilletVolumeFor(_billetRadius, cfg.BilletDimension);
             double vc = Cavity3D(_selectedDie3D);
-            VolumeText = F($"Billet {vb / 1000:F1} cm³ · cavity {vc / 1000:F1} cm³ · ratio {(vc > 0 ? vb / vc : 0):F3}");
+            VolumeText = $"Billet {U.Vf(vb)} · cavity {U.Vf(vc)} · ratio {F($"{(vc > 0 ? vb / vc : 0):F3}")}";
             MeshText = F($"≈ {cfg.EstimatedNodes:N0} nodes, {5 * cfg.EstimatedNodes:N0} tetrahedra (3D, modelled portion)");
             errors = cfg.Validate().ToList();
             double gap = errors.Count == 0 ? _selectedDie3D.Place(_billetRadius, cfg.BilletDimension).Gap : 0;
             PressText = _ramSpeed > 0 && _strokeIncrement > 0
-                ? F($"Stroke {gap:F2} mm · Δt {1000 * cfg.TimeIncrement:F2} ms · ~{Math.Ceiling(gap / _strokeIncrement):F0} increments")
+                ? $"Stroke {U.Lf(gap)} · Δt {F($"{1000 * cfg.TimeIncrement:F2}")} ms · ~{F($"{Math.Ceiling(gap / _strokeIncrement):F0}")} increments"
                 : "—";
             rateSize = _selectedDie3D.Billet == BilletShape.HorizontalBar ? 2 * _billetRadius : _billetHeight;
         }
@@ -432,11 +437,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             var cfg = BuildConfig();
             double vb = _selectedDie.BilletVolume(_billetRadius, _billetHeight, _billetLength);
             double vc = _selectedDie.CavityVolume(_billetLength);
-            VolumeText = F($"Billet {vb / 1000:F1} cm³ · cavity {vc / 1000:F1} cm³ · ratio {(vc > 0 ? vb / vc : 0):F3}");
+            VolumeText = $"Billet {U.Vf(vb)} · cavity {U.Vf(vc)} · ratio {F($"{(vc > 0 ? vb / vc : 0):F3}")}";
             MeshText = F($"{cfg.ElementsX} × {cfg.ElementsZ} = {cfg.ElementsX * cfg.ElementsZ} Q4 elements initially");
             double gap = _selectedDie.InitialGap(_billetRadius, _billetHeight);
             PressText = _ramSpeed > 0 && _strokeIncrement > 0
-                ? F($"Stroke {gap:F2} mm · Δt {1000 * cfg.TimeIncrement:F2} ms · ~{Math.Ceiling(gap / _strokeIncrement):F0} increments")
+                ? $"Stroke {U.Lf(gap)} · Δt {F($"{1000 * cfg.TimeIncrement:F2}")} ms · ~{F($"{Math.Ceiling(gap / _strokeIncrement):F0}")} increments"
                 : "—";
             errors = cfg.Validate().ToList();
             rateSize = _billetHeight;
@@ -444,9 +449,9 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
         double rate = rateSize > 0 ? _ramSpeed / rateSize : 0;
         var law = _selectedMaterial.At(_temperature);
-        MaterialText = F($"C(T) = {law.C:F3} MPa · n {law.N:F2} · m {law.M:F2} · σ̄(0.2, {rate:F2}/s) = {law.Stress(0.2, rate):F2} MPa");
+        MaterialText = $"C(T) = {U.Sf(law.C)} · n {F($"{law.N:F2}")} · m {F($"{law.M:F2}")} · σ̄(0.2, {F($"{rate:F2}")}/s) = {U.Sf(law.Stress(0.2, rate))}";
         if (!_selectedMaterial.InRange(_temperature))
-            errors.Add(F($"Temperature outside calibrated window {_selectedMaterial.TMin:F0}–{_selectedMaterial.TMax:F0} °C (flow stress extrapolated)."));
+            errors.Add($"Temperature outside calibrated window {U.Tf(_selectedMaterial.TMin)} – {U.Tf(_selectedMaterial.TMax)} (flow stress extrapolated).");
         HasInputWarning = errors.Count > 0;
         InputWarning = string.Join(Environment.NewLine, errors);
         foreach (var n in new[] { nameof(VolumeText), nameof(MeshText), nameof(PressText), nameof(MaterialText), nameof(HasInputWarning), nameof(InputWarning), nameof(DieDescription) })
@@ -574,7 +579,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     /// <summary>What the viewport draws: the selected increment, or the pre-run preview.</summary>
     public ForgingSnapshot? DisplaySnapshot => _currentSnapshot ?? _preview;
 
-    public bool ShowFieldColors => _currentSnapshot is not null;
+    public bool ShowFieldColors => _currentSnapshot is not null && _colorMap;
 
     public Rect ViewBounds { get => _viewBounds; private set => Set(ref _viewBounds, value); }
 
@@ -589,12 +594,14 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             OnPropertyChanged(nameof(RangeMin));
             OnPropertyChanged(nameof(RangeMax));
             OnPropertyChanged(nameof(FieldTitle));
+            OnPropertyChanged(nameof(FieldLabelFactor));
+            OnPropertyChanged(nameof(FieldLabelDecimals));
         }
     }
 
     public string FieldTitle => _currentSnapshot is null
         ? "Setup preview · billet seated in the open dies"
-        : $"{_selectedField.Name}  [{_selectedField.Unit}]";
+        : $"{_selectedField.Name}  [{DisplayUnit(_selectedField.Field)}]";
 
     public double RangeMin => _snapshots.Count > 0 ? _fieldMin[(int)_selectedField.Field] : 0;
 
@@ -666,18 +673,18 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         }
         else
         {
-            ScrubText = F($"Step {s.Step} / {Math.Max(ScrubMaximum, _snapshots[^1].Step)}   ·   stroke {s.Stroke:F3} / {_totalStroke:F3} mm   ·   t = {s.Time:F3} s");
-            ReadStroke = F($"{s.Stroke:F3} mm");
-            ReadGap = F($"{s.DieGap:F3} mm");
-            ReadLoad = F($"{s.LoadTonnes:F1} t  ({s.LoadNewton / 1000:F0} kN)");
+            ScrubText = $"Step {s.Step} / {Math.Max(ScrubMaximum, _snapshots[^1].Step)}   ·   stroke {U.L(s.Stroke).ToString(U.LengthFormat, Inv)} / {U.Lf(_totalStroke)}   ·   t = {F($"{s.Time:F3}")} s";
+            ReadStroke = U.Lf(s.Stroke);
+            ReadGap = U.Lf(s.DieGap);
+            ReadLoad = U.System == UnitSystem.US ? $"{U.LoadfN(s.LoadNewton)}  ({F($"{s.LoadNewton / 4448.2216:F0}")} kip)" : $"{U.LoadfN(s.LoadNewton)}  ({F($"{s.LoadNewton / 1000:F0}")} kN)";
             double peak = 0;
             for (int i = 0; i <= _scrubIndex && i < _snapshots.Count; i++) peak = Math.Max(peak, _snapshots[i].LoadTonnes);
-            ReadPeak = F($"{peak:F1} t");
+            ReadPeak = U.Loadf(peak);
             ReadFill = F($"{s.FillPercent:F2} %");
-            ReadVonMises = F($"{(s.VonMises.Length > 0 ? s.VonMises.Max() : 0):F1} MPa");
+            ReadVonMises = U.Sf(s.VonMises.Length > 0 ? s.VonMises.Max() : 0);
             ReadStrain = F($"{(s.EffectiveStrain.Length > 0 ? s.EffectiveStrain.Max() : 0):F3}");
             ReadVolume = F($"{s.VolumeChangePercent:+0.000;-0.000;0.000} %");
-            ReadMesh = s is Snapshot3D ? F($"{s.ElementCount} tets · {s.NodeCount} nodes") : F($"{s.ElementCount} el · {s.NodeCount} nodes");
+            ReadMesh = s is Snapshot3D ? F($"{s.ElementCount:N0} tetrahedra · {s.NodeCount:N0} nodes") : F($"{s.ElementCount:N0} quadrilaterals · {s.NodeCount:N0} nodes");
         }
 
         foreach (var n in new[] { nameof(ScrubText), nameof(ReadStroke), nameof(ReadGap), nameof(ReadLoad), nameof(ReadPeak), nameof(ReadFill), nameof(ReadVonMises), nameof(ReadStrain), nameof(ReadVolume), nameof(ReadMesh) })
@@ -713,6 +720,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         if (_analysis3D) Bounds3D = ComputeBounds3D(BuildConfig3D());
         else ViewBounds = ComputeBounds(BuildConfig());
         _logQueue.Enqueue(F($"=== {(_analysis3D ? "3D" : "2D")} run started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==="));
+        StopPlayback();
         State = RunState.Running;
         StatusText = _analysis3D ? "Solving (3D)…" : "Solving…";
         _cts = new CancellationTokenSource();
@@ -886,11 +894,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         };
         model.Axes.Add(new LinearAxis
         {
-            Position = AxisPosition.Bottom, Title = "Ram stroke (mm)", Minimum = 0, MajorGridlineStyle = LineStyle.Solid, MajorGridlineColor = grid,
+            Position = AxisPosition.Bottom, Key = "stroke", Title = "Ram stroke (" + U.Length + ")", Minimum = 0, MajorGridlineStyle = LineStyle.Solid, MajorGridlineColor = grid,
         });
         model.Axes.Add(new LinearAxis
         {
-            Position = AxisPosition.Left, Key = "load", Title = "Press load (t)", Minimum = 0, MajorGridlineStyle = LineStyle.Solid, MajorGridlineColor = grid,
+            Position = AxisPosition.Left, Key = "load", Title = "Press load (" + U.Load + ")", Minimum = 0, MajorGridlineStyle = LineStyle.Solid, MajorGridlineColor = grid,
             MaximumPadding = 0.08,
         });
         model.Axes.Add(new LinearAxis
@@ -915,8 +923,8 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     private void AddPoint(ForgingSnapshot s)
     {
-        _loadSeries.Points.Add(new DataPoint(s.Stroke, s.LoadTonnes));
-        _fillSeries.Points.Add(new DataPoint(s.Stroke, s.FillPercent));
+        _loadSeries.Points.Add(new DataPoint(U.L(s.Stroke), U.LoadFromNewton(s.LoadNewton)));
+        _fillSeries.Points.Add(new DataPoint(U.L(s.Stroke), s.FillPercent));
     }
 
     private void RebuildSeries()
@@ -929,16 +937,16 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     private void UpdateCapacityLine()
     {
-        _capacityLine.Y = _pressCapacity;
+        _capacityLine.Y = U.LoadFromTonnes(_pressCapacity);
         double peak = _snapshots.Count > 0 ? _snapshots.Max(s => s.LoadTonnes) : 0;
         if (peak > _pressCapacity)
-            _logQueue.Enqueue(F($"WARNING: peak load {peak:F1} t exceeds press capacity {_pressCapacity:F0} t."));
+            _logQueue.Enqueue($"WARNING: peak load {U.Loadf(peak)} exceeds press capacity {U.Loadf(_pressCapacity)}.");
         LoadPlot.InvalidatePlot(true);
     }
 
     private void UpdateCursor()
     {
-        _cursor.X = _currentSnapshot?.Stroke ?? 0;
+        _cursor.X = U.L(_currentSnapshot?.Stroke ?? 0);
         _plotDirty = true;
     }
 

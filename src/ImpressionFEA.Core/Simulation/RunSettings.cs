@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ImpressionFEA.Core.Simulation;
@@ -25,6 +25,9 @@ public sealed record RunSettings
 
     /// <summary>1-based body index of the moving top die in <see cref="StepFile"/> (null: the suggested die).</summary>
     public int? TopDieBody { get; init; }
+
+    /// <summary>Die-only STEP files: the user-defined workpiece (shape, size in mm, rotation, position).</summary>
+    public Cad.UserBillet? Workpiece { get; init; }
 
     public string Material { get; init; } = "";
 
@@ -72,6 +75,7 @@ public sealed record RunSettings
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
+        Converters = { new JsonStringEnumConverter() },
     };
 
     public static JsonSerializerOptions JsonOptions => Json;
