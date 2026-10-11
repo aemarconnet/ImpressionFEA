@@ -1,0 +1,263 @@
+<Window x:Class="ImpressionFEA.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:ImpressionFEA.App.Controls"
+        xmlns:vm="clr-namespace:ImpressionFEA.App.ViewModels"
+        xmlns:inf="clr-namespace:ImpressionFEA.App.Infrastructure"
+        xmlns:oxy="http://oxyplot.org/wpf"
+        Title="ImpressionFEA"
+        Width="1560" Height="940" MinWidth="1180" MinHeight="720"
+        Background="{StaticResource WindowBg}" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <inf:InverseBooleanConverter x:Key="Not" />
+        <Style x:Key="ReadLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+            <Setter Property="Margin" Value="0,3,8,3" />
+        </Style>
+        <Style x:Key="ReadValue" TargetType="TextBlock" BasedOn="{StaticResource MonoValue}">
+            <Setter Property="Margin" Value="0,3,0,3" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="38" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="5" />
+            <RowDefinition Height="170" MinHeight="60" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Background="{StaticResource HeaderBg}">
+            <DockPanel Margin="14,0">
+                <TextBlock DockPanel.Dock="Left" Text="IMPRESSIONFEA" Foreground="{StaticResource HeaderText}" FontWeight="Bold"
+                           FontSize="15" VerticalAlignment="Center" />
+                <TextBlock DockPanel.Dock="Left" Text="Closed-die impression forging · rigid-viscoplastic FEM" Foreground="#9AA5B1"
+                           Margin="14,0,0,0" VerticalAlignment="Center" />
+                <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#9AA5B1"
+                           FontFamily="{StaticResource Mono}" FontSize="11" Text="{Binding EngineName}" />
+            </DockPanel>
+        </Border>
+
+        <!-- Main area -->
+        <Grid Grid.Row="1" Margin="8,8,8,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="400" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 1. Input / configuration -->
+            <Border Style="{StaticResource Panel}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="CONFIGURATION" Style="{StaticResource PanelTitle}" />
+                    <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource PanelBorder}" />
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="12,0,12,12" IsEnabled="{Binding CanEdit}">
+                            <TextBlock Text="Analysis" Style="{StaticResource SectionHeader}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                <RadioButton Content="2D (axisym. / plane strain)" IsChecked="{Binding Analysis2D}" GroupName="Analysis" />
+                                <RadioButton Content="3D solid" IsChecked="{Binding Analysis3D}" GroupName="Analysis" Margin="12,0,0,0" />
+                            </StackPanel>
+
+                            <TextBlock Text="Geometry" Style="{StaticResource SectionHeader}" />
+                            <ComboBox ItemsSource="{Binding DieSets}" SelectedItem="{Binding SelectedDie}"
+                                      Visibility="{Binding Show2DDies, Converter={StaticResource BoolToVis}}" />
+                            <ComboBox ItemsSource="{Binding DieSets3D}" SelectedItem="{Binding SelectedDie3D}"
+                                      Visibility="{Binding Show3DDies, Converter={StaticResource BoolToVis}}" />
+                            <Button x:Name="ImportStepButton" Content="Import STEP (3 bodies)…" Click="ImportStep_Click" Style="{StaticResource FlatButton}"
+                                    Margin="0,6,0,0" HorizontalAlignment="Stretch"
+                                    ToolTip="Import a STEP assembly of bottom die, workpiece and top die. The body between the other two (by centre of gravity) is the workpiece; you pick the moving top die." />
+                            <TextBlock Text="{Binding DieDescription}" Style="{StaticResource Note}" />
+                            <TextBlock Text="{Binding SymmetryText}" Style="{StaticResource Note}" />
+                            <StackPanel Visibility="{Binding BilletEditable, Converter={StaticResource BoolToVis}}">
+                                <c:NumericField Label="{Binding RadiusLabel}" Unit="mm" Value="{Binding BilletRadius}" Format="F2" />
+                                <c:NumericField Label="Billet height H" Unit="mm" Value="{Binding BilletHeight}" Format="F2" IsEnabled="{Binding HeightEnabled}" />
+                                <c:NumericField Label="{Binding LengthLabel}" Unit="mm" Value="{Binding BilletLength}" Format="F1"
+                                                IsEnabled="{Binding LengthEnabled}" ToolTip="Plane strain: out-of-plane length. 3D bar: bar length." />
+                            </StackPanel>
+                            <TextBlock Text="{Binding VolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+
+                            <TextBlock Text="Material" Style="{StaticResource SectionHeader}" />
+                            <ComboBox ItemsSource="{Binding Materials}" SelectedItem="{Binding SelectedMaterial}" />
+                            <TextBlock Text="σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ, isothermal" Style="{StaticResource Note}" />
+                            <c:NumericField Label="Temperature T" Unit="°C" Value="{Binding Temperature}" Format="F0" />
+                            <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Format="F2"
+                                            ToolTip="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
+                            <TextBlock Text="{Binding MaterialText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+
+                            <TextBlock Text="Mesh" Style="{StaticResource SectionHeader}" />
+                            <c:NumericField Label="Target element size h" Unit="mm" Value="{Binding ElementSize}" Format="F2" />
+                            <TextBlock Text="{Binding MeshText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+                            <StackPanel Visibility="{Binding Analysis3D, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="Linear solver (3D)" Foreground="{StaticResource Ink}" Margin="0,6,0,0" />
+                                <ComboBox ItemsSource="{Binding Backends}" SelectedItem="{Binding SelectedBackend}" />
+                                <TextBlock Text="{Binding BackendInfo}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" FontSize="10.5" />
+                            </StackPanel>
+
+                            <TextBlock Text="Press" Style="{StaticResource SectionHeader}" />
+                            <c:NumericField Label="Ram speed v" Unit="mm/s" Value="{Binding RamSpeed}" Format="F1" />
+                            <c:NumericField Label="Stroke increment Δs" Unit="mm" Value="{Binding StrokeIncrement}" Format="F3" />
+                            <c:NumericField Label="Press capacity" Unit="t" Value="{Binding PressCapacity}" Format="F0" />
+                            <TextBlock Text="{Binding PressText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+
+                            <Border Margin="0,12,0,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Warn}" Background="#FFF8EC"
+                                    Visibility="{Binding HasInputWarning, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="{Binding InputWarning}" Foreground="{StaticResource Warn}" TextWrapping="Wrap" FontSize="11" />
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- 3. Results viewport -->
+            <Border Grid.Column="2" Style="{StaticResource Panel}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="1" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="1" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Margin="10,5,10,5">
+                        <TextBlock DockPanel.Dock="Left" Text="RESULTS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Muted}"
+                                   VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <ComboBox DockPanel.Dock="Left" Width="230" ItemsSource="{Binding Fields}" SelectedItem="{Binding SelectedField}" />
+                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="12,0,0,0">
+                            <RadioButton Content="2D section" IsChecked="{Binding Is2D}" GroupName="ViewMode" VerticalAlignment="Center"
+                                         IsEnabled="{Binding Analysis2D}" />
+                            <RadioButton Content="3D solid" IsChecked="{Binding Is3D}" GroupName="ViewMode" VerticalAlignment="Center" Margin="10,0,0,0" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <StackPanel Orientation="Horizontal" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}">
+                                <CheckBox Content="Mesh" IsChecked="{Binding ShowMesh}" />
+                                <CheckBox Content="Mirror" IsChecked="{Binding Mirror}" />
+                                <CheckBox Content="Contact nodes" IsChecked="{Binding ShowContact}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Visibility="{Binding Is3D, Converter={StaticResource BoolToVis}}">
+                                <CheckBox Content="Cut-away" IsChecked="{Binding CutAway}" IsEnabled="{Binding IsPlaneStrain, Converter={StaticResource Not}}"
+                                          ToolTip="Remove a 90° sector to expose the internal section (axisymmetric parts)" />
+                                <CheckBox Content="Dies" IsChecked="{Binding ShowDies}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                    <Border Grid.Row="1" Background="{StaticResource PanelBorder}" />
+                    <c:FieldViewport Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}"
+                                     Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
+                                     RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
+                                     ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}"
+                                     ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}" />
+                    <c:SolidViewport3D Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}" Die3D="{Binding ActiveDie3D}" Bounds3D="{Binding Bounds3D}"
+                                       Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
+                                       RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
+                                       CutAway="{Binding CutAway}" ShowDies="{Binding ShowDies}" PartLength="{Binding BilletLength}"
+                                       ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is3D, Converter={StaticResource BoolToVis}}" />
+                    <Border Grid.Row="3" Background="{StaticResource PanelBorder}" />
+                    <Grid Grid.Row="4" Margin="10,6,10,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="RAM DESCENT / STEP" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}" />
+                        <TextBlock HorizontalAlignment="Right" Text="{Binding ScrubText}" FontFamily="{StaticResource Mono}" FontSize="11" />
+                        <Slider Grid.Row="1" Margin="0,4,0,0" Minimum="0" Maximum="{Binding ScrubMaximum}" Value="{Binding ScrubIndex}"
+                                IsEnabled="{Binding CanScrub}" IsSnapToTickEnabled="True" TickFrequency="1" SmallChange="1" LargeChange="10"
+                                IsMoveToPointEnabled="True" />
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- 4. Telemetry -->
+            <Border Grid.Column="4" Style="{StaticResource Panel}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="TELEMETRY" Style="{StaticResource PanelTitle}" />
+                    <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource PanelBorder}" />
+                    <Grid DockPanel.Dock="Bottom" Margin="12,8,12,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                            <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Ram stroke" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ReadStroke}" Style="{StaticResource ReadValue}" />
+                        <TextBlock Grid.Row="1" Text="Die gap to closure" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ReadGap}" Style="{StaticResource ReadValue}" />
+                        <TextBlock Grid.Row="2" Text="Press load" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ReadLoad}" Style="{StaticResource ReadValue}" FontWeight="Bold" />
+                        <TextBlock Grid.Row="3" Text="Peak load to this step" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ReadPeak}" Style="{StaticResource ReadValue}" />
+                        <TextBlock Grid.Row="4" Text="Cavity fill" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ReadFill}" Style="{StaticResource ReadValue}" FontWeight="Bold" />
+                        <TextBlock Grid.Row="5" Text="Max von Mises stress" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ReadVonMises}" Style="{StaticResource ReadValue}" />
+                        <TextBlock Grid.Row="6" Text="Max effective strain" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding ReadStrain}" Style="{StaticResource ReadValue}" />
+                        <TextBlock Grid.Row="7" Text="Volume change" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding ReadVolume}" Style="{StaticResource ReadValue}" />
+                        <TextBlock Grid.Row="8" Text="Mesh" Style="{StaticResource ReadLabel}" />
+                        <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding ReadMesh}" Style="{StaticResource ReadValue}" />
+                    </Grid>
+                    <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource PanelBorder}" />
+                    <oxy:PlotView Model="{Binding LoadPlot}" Margin="4" Background="Transparent" />
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- 2. Execution & status bar -->
+        <Border Grid.Row="2" Margin="8,8,8,0" Style="{StaticResource Panel}" Padding="8,6">
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Left" Content="Solve FEA Simulation" Command="{Binding SolveCommand}" Style="{StaticResource PrimaryButton}" />
+                <Button DockPanel.Dock="Left" Content="Abort" Command="{Binding AbortCommand}" Style="{StaticResource FlatButton}" Margin="6,0,0,0" />
+                <Button DockPanel.Dock="Left" Content="Import STEP…" Click="ImportStep_Click" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
+                        IsEnabled="{Binding CanEdit}" ToolTip="Import a 3-body STEP assembly (bottom die, workpiece, top die)" />
+                <Border DockPanel.Dock="Left" Width="1" Background="{StaticResource PanelBorder}" Margin="12,2" />
+                <Border x:Name="StateLamp" DockPanel.Dock="Left" Width="10" Height="10" VerticalAlignment="Center" Background="{StaticResource Muted}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:RunState.Running}">
+                                    <Setter Property="Background" Value="{StaticResource Accent}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:RunState.Completed}">
+                                    <Setter Property="Background" Value="{StaticResource Ok}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:RunState.Aborted}">
+                                    <Setter Property="Background" Value="{StaticResource Warn}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="{x:Static vm:RunState.Failed}">
+                                    <Setter Property="Background" Value="{StaticResource Danger}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
+                <TextBlock DockPanel.Dock="Left" Text="{Binding State}" FontWeight="SemiBold" Margin="6,0,12,0" VerticalAlignment="Center" Width="74" />
+                <TextBlock DockPanel.Dock="Right" Text="{Binding ElapsedText}" FontFamily="{StaticResource Mono}" FontSize="14"
+                           VerticalAlignment="Center" Margin="12,0,4,0" ToolTip="Execution time" />
+                <TextBlock DockPanel.Dock="Right" Text="{Binding StepText}" FontFamily="{StaticResource Mono}" VerticalAlignment="Center"
+                           Margin="12,0,0,0" Width="130" TextAlignment="Right" />
+                <ProgressBar DockPanel.Dock="Right" Width="200" Height="10" Value="{Binding Progress, Mode=OneWay}" Maximum="100"
+                             Foreground="{StaticResource Accent}" Background="{StaticResource SectionBg}" BorderBrush="{StaticResource PanelBorder}" />
+                <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding StatusText}" Margin="0,0,12,0" />
+            </DockPanel>
+        </Border>
+
+        <GridSplitter Grid.Row="3" HorizontalAlignment="Stretch" Background="Transparent" ResizeDirection="Rows" />
+
+        <!-- Live solver log -->
+        <Border Grid.Row="4" Margin="8,0,8,8" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Background="{StaticResource LogBg}">
+            <TextBox x:Name="LogBox" IsReadOnly="True" Background="Transparent" Foreground="{StaticResource LogText}" BorderThickness="0"
+                     FontFamily="{StaticResource Mono}" FontSize="11.5" Padding="8,6" VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" IsUndoEnabled="False" />
+        </Border>
+    </Grid>
+</Window>

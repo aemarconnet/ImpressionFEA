@@ -1,0 +1,21 @@
+bin/
+obj/
+*.user
+.vs/
+impressionfea-crash.log
+
+# NVIDIA redistributables are fetched by native/fetch-cuda.ps1 (large binaries)
+native/_downloads/
+native/cuda/
+
+# Open CASCADE runtime + STEP shim are built by native/cad/build-cad.ps1 (large binaries, LGPL)
+native/cad/bin/
+native/cad/obj/
+# NVIDIA headers (not needed for the build; fetched with the CUDA archives)
+native/include/
+
+# Local demo models (not distributed)
+DEMO_IMPORT/
+~$*
+*.SLDPRT
+*.SLDASM

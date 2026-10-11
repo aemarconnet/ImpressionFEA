@@ -1,0 +1,20 @@
+<UserControl x:Class="ImpressionFEA.App.Controls.NumericField"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="Root" Margin="0,2,0,2">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="86" />
+            <ColumnDefinition Width="40" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="{Binding Label, ElementName=Root}" VerticalAlignment="Center" Foreground="{StaticResource Ink}"
+                   TextTrimming="CharacterEllipsis" ToolTip="{Binding ToolTip, ElementName=Root}" />
+        <TextBox x:Name="Box" Grid.Column="1" Height="22" Padding="3,1" TextAlignment="Right" VerticalContentAlignment="Center"
+                 FontFamily="{StaticResource Mono}" BorderBrush="{StaticResource PanelBorder}"
+                 IsReadOnly="{Binding IsReadOnly, ElementName=Root}"
+                 LostKeyboardFocus="Box_LostKeyboardFocus" KeyDown="Box_KeyDown" />
+        <TextBlock Grid.Column="2" Text="{Binding Unit, ElementName=Root}" Margin="6,0,0,0" VerticalAlignment="Center"
+                   Foreground="{StaticResource Muted}" FontFamily="{StaticResource Mono}" FontSize="11" />
+    </Grid>
+</UserControl>

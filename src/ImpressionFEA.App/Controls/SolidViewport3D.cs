@@ -1,0 +1,949 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
+using ImpressionFEA.Core.Geometry;
+using ImpressionFEA.Core.Simulation;
+using ImpressionFEA.Core.ThreeD;
+
+namespace ImpressionFEA.App.Controls;
+
+/// <summary>
+/// 3D solid view: 2D results revolved (axisymmetric) or mirrored and extruded (plane strain), and true 3D tetrahedral
+/// results (mirrored symmetric models or full imported models). Contours are mapped through a banded palette texture so
+/// bands stay crisp; an optional cut-away exposes the section. Dies are translucent solids. SolidWorks-style controls:
+/// middle-drag rotate, Ctrl+middle pan, Shift+middle zoom, Alt+middle roll, wheel zooms about the cursor, F fits,
+/// Ctrl+1…7 standard views, Space opens the view menu, arrows rotate 15° (Shift 90°, Ctrl pans, Alt rolls).
+/// </summary>
+public sealed class SolidViewport3D : Grid
+{
+    public static readonly DependencyProperty SnapshotProperty = Reg(nameof(Snapshot), typeof(ForgingSnapshot), null, false);
+    public static readonly DependencyProperty Die3DProperty = Reg(nameof(Die3D), typeof(DieSet3D), null, true);
+    public static readonly DependencyProperty Bounds3DProperty = Reg(nameof(Bounds3D), typeof(Rect3D), new Rect3D(-50, -50, -10, 100, 100, 60), true);
+    public static readonly DependencyProperty DieProperty = Reg(nameof(Die), typeof(DieSet), null, true);
+    public static readonly DependencyProperty FieldProperty = Reg(nameof(Field), typeof(ResultField), ResultField.VonMisesStress, false);
+    public static readonly DependencyProperty RangeMinProperty = Reg(nameof(RangeMin), typeof(double), 0.0, false);
+    public static readonly DependencyProperty RangeMaxProperty = Reg(nameof(RangeMax), typeof(double), 1.0, false);
+    public static readonly DependencyProperty ShowFieldProperty = Reg(nameof(ShowField), typeof(bool), true, false);
+    public static readonly DependencyProperty CutAwayProperty = Reg(nameof(CutAway), typeof(bool), true, false);
+    public static readonly DependencyProperty ShowDiesProperty = Reg(nameof(ShowDies), typeof(bool), true, false);
+    public static readonly DependencyProperty PartLengthProperty = Reg(nameof(PartLength), typeof(double), 100.0, true);
+    public static readonly DependencyProperty ViewBoundsProperty = Reg(nameof(ViewBounds), typeof(Rect), new Rect(0, -10, 50, 60), true);
+    public static readonly DependencyProperty FieldTitleProperty = DependencyProperty.Register(nameof(FieldTitle), typeof(string), typeof(SolidViewport3D),
+        new PropertyMetadata("", (d, e) => ((SolidViewport3D)d)._title.Text = (string)e.NewValue));
+
+    private const int FullSegments = 96;
+    private static readonly Color DieColor = Color.FromArgb(0x55, 0x6E, 0x78, 0x84);
+    private static readonly Color PlainColor = Color.FromRgb(0xC3, 0xCD, 0xD9);
+
+    private readonly PerspectiveCamera _camera = new() { FieldOfView = 35, NearPlaneDistance = 1, FarPlaneDistance = 1e5 };
+    private readonly DirectionalLight _headlight = new(Color.FromRgb(0xC8, 0xC8, 0xC8), new Vector3D(-1, -1, -1));
+    private readonly ModelVisual3D _content = new();
+    private readonly TextBlock _title = new() { Margin = new Thickness(12, 7, 0, 0), FontWeight = FontWeights.SemiBold, FontSize = 12 };
+    private readonly ColorBar _bar = new() { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 30, 12, 0), Width = 84 };
+    private readonly Material _fieldMaterial;
+    private readonly Material _plainMaterial;
+    private readonly Material _dieMaterial;
+
+    private Point3D _target;
+    private double _distance = 200;
+    private Vector3D _look = new(0, 0, -1); // unit, camera → target
+    private Vector3D _up = new(0, 1, 0);    // unit, ⟂ _look
+    private Point _lastMouse;
+    private DragMode _drag;
+
+    private enum DragMode
+    {
+        None,
+        Rotate,
+        Pan,
+        Zoom,
+        Roll,
+    }
+
+    /// <summary>Standard views (SolidWorks numbering: Ctrl+1 … Ctrl+7). Model z (press axis) is up.</summary>
+    public enum StandardView
+    {
+        Front = 1,
+        Back,
+        Left,
+        Right,
+        Top,
+        Bottom,
+        Isometric,
+    }
+
+    public SolidViewport3D()
+    {
+        Background = new SolidColorBrush(Color.FromRgb(0xF7, 0xF8, 0xFA));
+        ClipToBounds = true;
+        Focusable = true;
+        FocusVisualStyle = null;
+
+        var strip = new ImageBrush(ContourPalette.Strip())
+        {
+            ViewportUnits = BrushMappingMode.Absolute,
+            Viewport = new Rect(0, 0, 1, 1),
+            TileMode = TileMode.None,
+        };
+        RenderOptions.SetBitmapScalingMode(strip, BitmapScalingMode.NearestNeighbor);
+        strip.Freeze();
+        _fieldMaterial = Frozen(new DiffuseMaterial(strip));
+        _plainMaterial = Frozen(new MaterialGroup { Children = { new DiffuseMaterial(new SolidColorBrush(PlainColor)), new SpecularMaterial(new SolidColorBrush(Color.FromRgb(0x50, 0x50, 0x50)), 30) } });
+        _dieMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(DieColor)));
+
+        var lights = new Model3DGroup();
+        lights.Children.Add(new AmbientLight(Color.FromRgb(0x70, 0x70, 0x70)));
+        lights.Children.Add(_headlight);
+        lights.Children.Add(new DirectionalLight(Color.FromRgb(0x40, 0x40, 0x40), new Vector3D(0.3, -1, 0.2)));
+        var viewport = new Viewport3D { Camera = _camera, IsHitTestVisible = false };
+        viewport.Children.Add(new ModelVisual3D { Content = lights });
+        viewport.Children.Add(_content);
+        RenderOptions.SetEdgeMode(viewport, EdgeMode.Unspecified);
+
+        Children.Add(viewport);
+        Children.Add(_title);
+        Children.Add(_bar);
+        Children.Add(new TextBlock
+        {
+            Text = "Middle-drag rotate · Ctrl+middle pan · Shift+middle / wheel zoom · Alt+middle roll · F fit · Ctrl+1–7 views · Space view menu · arrows rotate 15°",
+            Foreground = new SolidColorBrush(Color.FromRgb(0x56, 0x60, 0x6C)),
+            FontSize = 11,
+            Margin = new Thickness(12, 0, 0, 8),
+            VerticalAlignment = VerticalAlignment.Bottom,
+            IsHitTestVisible = false,
+        });
+
+        MouseDown += OnMouseDown;
+        MouseMove += OnMouseMove;
+        MouseUp += (_, _) => EndDrag();
+        LostMouseCapture += (_, _) => _drag = DragMode.None;
+        KeyDown += OnKeyDown;
+        IsVisibleChanged += (_, _) => Rebuild();
+        MouseWheel += (_, e) =>
+        {
+            Focus();
+            ZoomAt(e.GetPosition(this), Math.Pow(0.88, e.Delta / 120.0));
+        };
+        SetView(StandardView.Isometric);
+        Fit();
+    }
+
+    public ForgingSnapshot? Snapshot { get => (ForgingSnapshot?)GetValue(SnapshotProperty); set => SetValue(SnapshotProperty, value); }
+
+    /// <summary>3D die set; when set, 3D (tetrahedral) results are rendered instead of revolved / extruded 2D sections.</summary>
+    public DieSet3D? Die3D { get => (DieSet3D?)GetValue(Die3DProperty); set => SetValue(Die3DProperty, value); }
+
+    /// <summary>World box (x, y, z in mm, z = press axis) used to frame the 3D analysis.</summary>
+    public Rect3D Bounds3D { get => (Rect3D)GetValue(Bounds3DProperty); set => SetValue(Bounds3DProperty, value); }
+
+    public DieSet? Die { get => (DieSet?)GetValue(DieProperty); set => SetValue(DieProperty, value); }
+
+    public ResultField Field { get => (ResultField)GetValue(FieldProperty); set => SetValue(FieldProperty, value); }
+
+    public double RangeMin { get => (double)GetValue(RangeMinProperty); set => SetValue(RangeMinProperty, value); }
+
+    public double RangeMax { get => (double)GetValue(RangeMaxProperty); set => SetValue(RangeMaxProperty, value); }
+
+    public bool ShowField { get => (bool)GetValue(ShowFieldProperty); set => SetValue(ShowFieldProperty, value); }
+
+    public bool CutAway { get => (bool)GetValue(CutAwayProperty); set => SetValue(CutAwayProperty, value); }
+
+    public bool ShowDies { get => (bool)GetValue(ShowDiesProperty); set => SetValue(ShowDiesProperty, value); }
+
+    /// <summary>Out-of-plane length used to extrude plane-strain sections (mm).</summary>
+    public double PartLength { get => (double)GetValue(PartLengthProperty); set => SetValue(PartLengthProperty, value); }
+
+    public Rect ViewBounds { get => (Rect)GetValue(ViewBoundsProperty); set => SetValue(ViewBoundsProperty, value); }
+
+    public string FieldTitle { get => (string)GetValue(FieldTitleProperty); set => SetValue(FieldTitleProperty, value); }
+
+    private static DependencyProperty Reg(string name, Type type, object? def, bool refit) =>
+        DependencyProperty.Register(name, type, typeof(SolidViewport3D), new PropertyMetadata(def, (d, _) =>
+        {
+            var v = (SolidViewport3D)d;
+            if (refit) v.Fit();
+            v.Rebuild();
+        }));
+
+    private static T Frozen<T>(T f) where T : Freezable
+    {
+        f.Freeze();
+        return f;
+    }
+
+    // ------------------------------------------------------------------ camera (SolidWorks-style controls)
+
+    /// <summary>Frames the model, keeping the current view orientation.</summary>
+    public void Fit()
+    {
+        Point3D centre;
+        double radius;
+        if (Die3D is not null)
+        {
+            var b = Bounds3D;
+            centre = Map(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
+            radius = 0.5 * Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);
+        }
+        else
+        {
+            var vb = ViewBounds;
+            radius = Math.Max(vb.Right, vb.Height / 2);
+            if (Die?.IsPlaneStrain == true) radius = Math.Max(radius, PartLength / 2);
+            centre = new Point3D(0, vb.Top + vb.Height / 2, 0);
+            radius *= 1.1;
+        }
+
+        _target = centre;
+        double half = _camera.FieldOfView * Math.PI / 360;
+        if (ActualWidth > 0 && ActualHeight > 0) half = Math.Atan(Math.Tan(half) * Math.Min(1, ActualHeight / ActualWidth));
+        _distance = 1.05 * radius / Math.Sin(half);
+        UpdateCamera();
+    }
+
+    /// <summary>Sets a standard view direction (model z up) and refits.</summary>
+    public void SetView(StandardView view)
+    {
+        // View space: X = model x, Y = model z (up), Z = −model y.
+        (Vector3D look, Vector3D up) = view switch
+        {
+            StandardView.Front => (new Vector3D(0, 0, -1), new Vector3D(0, 1, 0)),
+            StandardView.Back => (new Vector3D(0, 0, 1), new Vector3D(0, 1, 0)),
+            StandardView.Left => (new Vector3D(1, 0, 0), new Vector3D(0, 1, 0)),
+            StandardView.Right => (new Vector3D(-1, 0, 0), new Vector3D(0, 1, 0)),
+            StandardView.Top => (new Vector3D(0, -1, 0), new Vector3D(0, 0, -1)),
+            StandardView.Bottom => (new Vector3D(0, 1, 0), new Vector3D(0, 0, 1)),
+            _ => (new Vector3D(-1, -0.8, -1.25), new Vector3D(0, 1, 0)),
+        };
+        look.Normalize();
+        _look = look;
+        _up = up - Vector3D.DotProduct(up, look) * look;
+        _up.Normalize();
+        Fit();
+    }
+
+    private Vector3D Right
+    {
+        get
+        {
+            var r = Vector3D.CrossProduct(_look, _up);
+            r.Normalize();
+            return r;
+        }
+    }
+
+    private static Vector3D Rotated(Vector3D v, Vector3D axis, double degrees)
+    {
+        var m = Matrix3D.Identity;
+        m.Rotate(new Quaternion(axis, degrees));
+        return m.Transform(v);
+    }
+
+    /// <summary>Turntable-free trackball rotation: horizontal about the screen up axis, vertical about the screen right axis.</summary>
+    private void Rotate(double degAboutUp, double degAboutRight)
+    {
+        var right = Right;
+        _look = Rotated(_look, _up, degAboutUp);
+        _look = Rotated(_look, right, degAboutRight);
+        _up = Rotated(_up, right, degAboutRight);
+        Orthonormalise();
+    }
+
+    private void Roll(double degrees)
+    {
+        _up = Rotated(_up, _look, degrees);
+        Orthonormalise();
+    }
+
+    private void Orthonormalise()
+    {
+        _look.Normalize();
+        _up -= Vector3D.DotProduct(_up, _look) * _look;
+        _up.Normalize();
+    }
+
+    private void Pan(Vector screenDelta)
+    {
+        // One pixel moves the target by the size of a pixel at the target distance.
+        double perPixel = 2 * _distance * Math.Tan(_camera.FieldOfView * Math.PI / 360) / Math.Max(ActualWidth, 1);
+        _target += (-screenDelta.X * perPixel) * Right + (screenDelta.Y * perPixel) * _up;
+    }
+
+    /// <summary>Zooms by <paramref name="factor"/> (&lt; 1 = in) keeping the point under the cursor fixed.</summary>
+    private void ZoomAt(Point cursor, double factor)
+    {
+        double w = Math.Max(ActualWidth, 1), h = Math.Max(ActualHeight, 1);
+        double halfW = Math.Tan(_camera.FieldOfView * Math.PI / 360), halfH = halfW * h / w;
+        var ray = _look + (2 * cursor.X / w - 1) * halfW * Right + (1 - 2 * cursor.Y / h) * halfH * _up;
+        var pos = _target - _distance * _look;
+        var p = pos + _distance * ray; // point under the cursor on the plane through the target
+        _target = p + factor * (_target - p);
+        _distance *= factor;
+        UpdateCamera();
+    }
+
+    private void UpdateCamera()
+    {
+        _camera.Position = _target - _distance * _look;
+        _camera.LookDirection = _distance * _look;
+        _camera.UpDirection = _up;
+        _camera.NearPlaneDistance = Math.Max(0.05, _distance / 2000);
+        _headlight.Direction = _look - 0.35 * _up + 0.2 * Right;
+    }
+
+    private void OnMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        Focus();
+        if (e.ClickCount == 2 && e.ChangedButton is MouseButton.Middle or MouseButton.Left)
+        {
+            Fit();
+            return;
+        }
+
+        var mods = Keyboard.Modifiers;
+        _drag = e.ChangedButton switch
+        {
+            MouseButton.Middle when mods.HasFlag(ModifierKeys.Control) => DragMode.Pan,
+            MouseButton.Middle when mods.HasFlag(ModifierKeys.Shift) => DragMode.Zoom,
+            MouseButton.Middle when mods.HasFlag(ModifierKeys.Alt) => DragMode.Roll,
+            MouseButton.Middle => DragMode.Rotate,
+            MouseButton.Left => DragMode.Rotate,
+            MouseButton.Right => DragMode.Pan,
+            _ => DragMode.None,
+        };
+        if (_drag == DragMode.None) return;
+        _lastMouse = e.GetPosition(this);
+        CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void EndDrag()
+    {
+        _drag = DragMode.None;
+        ReleaseMouseCapture();
+    }
+
+    private void OnMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_drag == DragMode.None) return;
+        var p = e.GetPosition(this);
+        var d = p - _lastMouse;
+        _lastMouse = p;
+        switch (_drag)
+        {
+            case DragMode.Rotate:
+                Rotate(-0.4 * d.X, -0.4 * d.Y);
+                break;
+            case DragMode.Pan:
+                Pan(d);
+                break;
+            case DragMode.Zoom:
+                _distance *= Math.Pow(1.01, d.Y); // drag down = zoom out, up = zoom in
+                break;
+            case DragMode.Roll:
+                Roll(0.4 * d.X);
+                break;
+        }
+
+        UpdateCamera();
+    }
+
+    private void OnKeyDown(object sender, KeyEventArgs e)
+    {
+        var mods = Keyboard.Modifiers;
+        bool ctrl = mods.HasFlag(ModifierKeys.Control), shift = mods.HasFlag(ModifierKeys.Shift), alt = mods.HasFlag(ModifierKeys.Alt);
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        int digit = key is >= Key.D1 and <= Key.D7 ? key - Key.D1 + 1 : key is >= Key.NumPad1 and <= Key.NumPad7 ? key - Key.NumPad1 + 1 : 0;
+        Vector3D? arrow = key switch
+        {
+            Key.Left => new Vector3D(-1, 0, 0),
+            Key.Right => new Vector3D(1, 0, 0),
+            Key.Up => new Vector3D(0, -1, 0),
+            Key.Down => new Vector3D(0, 1, 0),
+            _ => null,
+        };
+
+        if (ctrl && digit > 0) SetView((StandardView)digit);
+        else if (key == Key.F && !ctrl && !alt) Fit();
+        else if (key == Key.Z && !ctrl && !alt) ZoomAt(new Point(ActualWidth / 2, ActualHeight / 2), shift ? 1 / 1.25 : 1.25);
+        else if (key == Key.Space) ShowViewMenu();
+        else if (arrow is { } a)
+        {
+            if (ctrl) Pan(new Vector(-a.X * 0.05 * ActualWidth, -a.Y * 0.05 * ActualHeight));
+            else if (alt && a.X != 0) Roll(15 * a.X);
+            else
+            {
+                double step = shift ? 90 : 15;
+                Rotate(-step * a.X, -step * a.Y);
+            }
+
+            UpdateCamera();
+        }
+        else
+        {
+            return;
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>View orientation menu (SolidWorks: Spacebar).</summary>
+    private void ShowViewMenu()
+    {
+        var menu = new ContextMenu { PlacementTarget = this, Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        foreach (StandardView v in Enum.GetValues<StandardView>())
+        {
+            var item = new MenuItem { Header = v.ToString(), InputGestureText = $"Ctrl+{(int)v}" };
+            item.Click += (_, _) => SetView(v);
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Separator());
+        var fit = new MenuItem { Header = "Zoom to fit", InputGestureText = "F" };
+        fit.Click += (_, _) => Fit();
+        menu.Items.Add(fit);
+        menu.IsOpen = true;
+    }
+
+    // ------------------------------------------------------------------ geometry
+
+    private void Rebuild()
+    {
+        if (!IsVisible) return; // rebuilt when shown
+        if (Die3D is { } d3)
+        {
+            Build3D(d3);
+            return;
+        }
+
+        var group = new Model3DGroup();
+        var die = Die;
+        bool plane = die?.IsPlaneStrain == true;
+        bool cut = CutAway && !plane;
+        double a0 = cut ? Math.PI / 4 : 0, a1 = cut ? 2 * Math.PI - Math.PI / 4 : 2 * Math.PI;
+        int segs = cut ? FullSegments * 3 / 4 : FullSegments;
+
+        var snap = Snapshot as StepSnapshot;
+        if (snap is not null)
+        {
+            var mesh = new MeshGeometry3D();
+            bool field = ShowField;
+            double[] t = field ? Normalised(snap) : new double[snap.Mesh.NodeCount];
+            if (plane) BuildExtrudedPart(mesh, snap, t, PartLength);
+            else BuildRevolvedPart(mesh, snap, t, a0, a1, segs, cut);
+            mesh.Freeze();
+            var m = new GeometryModel3D(mesh, field ? _fieldMaterial : _plainMaterial) { BackMaterial = field ? _fieldMaterial : _plainMaterial };
+            m.Freeze();
+            group.Children.Add(m);
+        }
+
+        if (die is not null && ShowDies)
+        {
+            var dm = new MeshGeometry3D();
+            double gap = snap?.DieGap ?? 0;
+            double ext = die.ViewExtent;
+            const double block = 10; // die block thickness behind the deepest impression point, mm
+            double baseLow = die.Bottom.HeightRange(0, ext).Min - block;
+            double baseHigh = die.TopClosed.HeightRange(0, ext).Max + gap + block;
+            foreach (var (surf, off, bas) in new[] { (die.Bottom, 0.0, baseLow), (die.TopClosed, gap, baseHigh) })
+            {
+                var prof = new List<Point>();
+                foreach (var p in surf.Points)
+                {
+                    if (p.X <= ext) prof.Add(new Point(p.X, p.Y + off));
+                }
+
+                prof.Add(new Point(ext, surf.HeightAt(ext) + off));
+                prof.Add(new Point(ext, bas));
+                prof.Add(new Point(0, bas));
+                if (plane) ExtrudeProfile(dm, prof, PartLength);
+                else RevolveProfile(dm, prof, a0, a1, segs);
+            }
+
+            dm.Freeze();
+            var dmodel = new GeometryModel3D(dm, _dieMaterial) { BackMaterial = _dieMaterial };
+            dmodel.Freeze();
+            group.Children.Add(dmodel); // translucent last
+        }
+
+        group.Freeze();
+        _content.Content = group;
+        _bar.RangeMin = RangeMin;
+        _bar.RangeMax = RangeMax;
+        _bar.Visibility = ShowField && snap is not null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // ------------------------------------------------------------------ true 3D results
+
+    /// <summary>Model (x, y, z; z = press axis) → view space (X, Y up, Z), a proper rotation.</summary>
+    private static Point3D Map(double x, double y, double z) => new(x, z, -y);
+
+    private static Vector3D MapN(double x, double y, double z) => new(x, z, -y);
+
+    private void Build3D(DieSet3D die)
+    {
+        var group = new Model3DGroup();
+        (int Sx, int Sy)[] copies = die.Symmetry switch
+        {
+            Symmetry3D.Quarter => [(1, 1), (-1, 1), (1, -1), (-1, -1)],
+            Symmetry3D.Half => [(1, 1), (1, -1)],
+            _ => [(1, 1)],
+        };
+        var removed = (Sx: 1, Sy: -1); // the copy facing the default camera
+        bool cut = CutAway;
+        bool field = ShowField;
+
+        if (Snapshot is Snapshot3D s)
+        {
+            var mesh = s.Mesh;
+            var t = field ? Normalised(s) : new double[mesh.NodeCount];
+            var g = new MeshGeometry3D();
+            if (die.Symmetry == Symmetry3D.None) BuildFullPart(g, s, t, cut);
+            else BuildMirroredPart(g, s, t, copies, removed, cut);
+            g.Freeze();
+            var mat = field ? _fieldMaterial : _plainMaterial;
+            var model = new GeometryModel3D(g, mat) { BackMaterial = mat };
+            model.Freeze();
+            group.Children.Add(model);
+        }
+
+        if (ShowDies)
+        {
+            double gap = Snapshot?.DieGap ?? (die.IsImported ? die.Place(0, 0).Gap : 0);
+            var dm = new MeshGeometry3D();
+            foreach (var (surf, off) in new[] { (die.Bottom, 0.0), (die.TopClosed, gap) })
+            {
+                if (surf is HeightFieldDie hf) AddHeightField(dm, die, hf, off, cut);
+                else if (surf is TriMeshDie tm) AddSolid(dm, tm.Solid, off, cut);
+            }
+
+            dm.Freeze();
+            var dmodel = new GeometryModel3D(dm, _dieMaterial) { BackMaterial = _dieMaterial };
+            dmodel.Freeze();
+            group.Children.Add(dmodel);
+        }
+
+        group.Freeze();
+        _content.Content = group;
+        _bar.RangeMin = RangeMin;
+        _bar.RangeMax = RangeMax;
+        _bar.Visibility = field && Snapshot is not null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Symmetric (quarter / half) model: boundary surface mirrored into the full part; cut-away exposes the symmetry planes.</summary>
+    private static void BuildMirroredPart(MeshGeometry3D g, Snapshot3D s, double[] t, (int Sx, int Sy)[] copies, (int Sx, int Sy) removed, bool cut)
+    {
+        var mesh = s.Mesh;
+        var nrm = new Vector3D[mesh.NodeCount];
+        var f = mesh.BoundaryFaces;
+        for (int k = 0; k < mesh.FaceIsSymmetry.Length; k++)
+        {
+            if (mesh.FaceIsSymmetry[k]) continue;
+            int a = f[3 * k], b = f[3 * k + 1], c = f[3 * k + 2];
+            var fn = FaceNormal(s, a, b, c);
+            nrm[a] += fn;
+            nrm[b] += fn;
+            nrm[c] += fn;
+        }
+
+        foreach (var (sx, sy) in copies)
+        {
+            if (cut && (sx, sy) == removed) continue;
+            for (int k = 0; k < mesh.FaceIsSymmetry.Length; k++)
+            {
+                int a = f[3 * k], b = f[3 * k + 1], c = f[3 * k + 2];
+                Vector3D? flat = null;
+                if (mesh.FaceIsSymmetry[k])
+                {
+                    if (!cut) continue;
+                    bool onX = mesh.OnX0[a] && mesh.OnX0[b] && mesh.OnX0[c];
+                    var neighbour = onX ? (-sx, sy) : (sx, -sy);
+                    if (neighbour != removed) continue;
+                    flat = onX ? MapN(-sx, 0, 0) : MapN(0, -sy, 0);
+                }
+
+                foreach (int n in new[] { a, b, c })
+                {
+                    g.Positions.Add(Map(sx * s.X[n], sy * s.Y[n], s.Z[n]));
+                    var v = flat ?? MapN(sx * nrm[n].X, sy * nrm[n].Y, nrm[n].Z);
+                    if (flat is null && v.Length > 0) v.Normalize();
+                    g.Normals.Add(v);
+                    g.TextureCoordinates.Add(new Point(t[n], 0.5));
+                }
+
+                int i0 = g.Positions.Count - 3;
+                AddTri(g, i0, i0 + 1, i0 + 2);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Full model (no symmetry): the outer surface with smooth normals; with cut-away, the tetrahedra in front of the
+    /// y = 0 plane (facing the default camera) are removed and the exposed section is drawn with flat normals.
+    /// </summary>
+    private static void BuildFullPart(MeshGeometry3D g, Snapshot3D s, double[] t, bool cut)
+    {
+        var mesh = s.Mesh;
+        var tets = mesh.Tets;
+        var nrm = new Vector3D[mesh.NodeCount];
+        var f = mesh.BoundaryFaces;
+        var outer = new HashSet<(int, int, int)>();
+        for (int k = 0; k < f.Length / 3; k++)
+        {
+            int a = f[3 * k], b = f[3 * k + 1], c = f[3 * k + 2];
+            var fn = FaceNormal(s, a, b, c);
+            nrm[a] += fn;
+            nrm[b] += fn;
+            nrm[c] += fn;
+            outer.Add(FaceKey(a, b, c));
+        }
+
+        var faces = new List<(int A, int B, int C, bool Section)>();
+        if (!cut)
+        {
+            for (int k = 0; k < f.Length / 3; k++) faces.Add((f[3 * k], f[3 * k + 1], f[3 * k + 2], false));
+        }
+        else
+        {
+            // Faces of the kept tets that are not shared by two kept tets; outward orientation from the owning tet.
+            var count = new Dictionary<(int, int, int), (int A, int B, int C, int N)>();
+            ReadOnlySpan<int> fi = [1, 2, 3, 0, 3, 2, 0, 1, 3, 0, 2, 1]; // outward faces of a positive tet (opposite vertices 0..3)
+            for (int e = 0; e < mesh.ElementCount; e++)
+            {
+                double cy = 0.25 * (s.Y[tets[4 * e]] + s.Y[tets[4 * e + 1]] + s.Y[tets[4 * e + 2]] + s.Y[tets[4 * e + 3]]);
+                if (cy < 0) continue;
+                for (int q = 0; q < 4; q++)
+                {
+                    int a = tets[4 * e + fi[3 * q]], b = tets[4 * e + fi[3 * q + 1]], c = tets[4 * e + fi[3 * q + 2]];
+                    var key = FaceKey(a, b, c);
+                    count[key] = count.TryGetValue(key, out var v) ? v with { N = v.N + 1 } : (a, b, c, 1);
+                }
+            }
+
+            foreach (var (key, v) in count)
+            {
+                if (v.N == 1) faces.Add((v.A, v.B, v.C, !outer.Contains(key)));
+            }
+        }
+
+        foreach (var (a, b, c, section) in faces)
+        {
+            Vector3D? flat = null;
+            if (section)
+            {
+                var fn = FaceNormal(s, a, b, c);
+                flat = MapN(fn.X, fn.Y, fn.Z);
+            }
+
+            foreach (int n in new[] { a, b, c })
+            {
+                g.Positions.Add(Map(s.X[n], s.Y[n], s.Z[n]));
+                var v = flat ?? MapN(nrm[n].X, nrm[n].Y, nrm[n].Z);
+                if (v.Length > 0) v.Normalize();
+                g.Normals.Add(v);
+                g.TextureCoordinates.Add(new Point(t[n], 0.5));
+            }
+
+            int i0 = g.Positions.Count - 3;
+            AddTri(g, i0, i0 + 1, i0 + 2);
+        }
+    }
+
+    private static (int, int, int) FaceKey(int a, int b, int c)
+    {
+        if (a > b) (a, b) = (b, a);
+        if (b > c) (b, c) = (c, b);
+        if (a > b) (a, b) = (b, a);
+        return (a, b, c);
+    }
+
+    private static Vector3D FaceNormal(Snapshot3D s, int a, int b, int c) => Vector3D.CrossProduct(
+        new Vector3D(s.X[b] - s.X[a], s.Y[b] - s.Y[a], s.Z[b] - s.Z[a]),
+        new Vector3D(s.X[c] - s.X[a], s.Y[c] - s.Y[a], s.Z[c] - s.Z[a]));
+
+    private static void AddHeightField(MeshGeometry3D dm, DieSet3D die, HeightFieldDie surf, double off, bool cut)
+    {
+        bool quarter = die.Symmetry == Symmetry3D.Quarter;
+        double step = Math.Max(surf.Dx, (die.XMax - die.XMin) / 150);
+        int nx = (int)Math.Ceiling((die.XMax - die.XMin) / step), ny = (int)Math.Ceiling(2 * die.YMax / step);
+        int baseIdx = dm.Positions.Count;
+        for (int j = 0; j <= ny; j++)
+        {
+            for (int i = 0; i <= nx; i++)
+            {
+                double x = die.XMin + i * step, y = -die.YMax + j * step;
+                double z = surf.HeightAt(x, y) + off;
+                double hx = (surf.HeightAt(x + 0.5 * step, y) - surf.HeightAt(x - 0.5 * step, y)) / step;
+                double hy = (surf.HeightAt(x, y + 0.5 * step) - surf.HeightAt(x, y - 0.5 * step)) / step;
+                dm.Positions.Add(Map(x, y, z));
+                var n = MapN(-hx, -hy, 1);
+                n.Normalize();
+                dm.Normals.Add(n);
+            }
+        }
+
+        for (int j = 0; j < ny; j++)
+        {
+            for (int i = 0; i < nx; i++)
+            {
+                double cx = die.XMin + (i + 0.5) * step, cy = -die.YMax + (j + 0.5) * step;
+                if (cut && cy < 0 && (!quarter || cx > 0)) continue;
+                int p = baseIdx + j * (nx + 1) + i;
+                AddTri(dm, p, p + 1, p + nx + 2);
+                AddTri(dm, p, p + nx + 2, p + nx + 1);
+            }
+        }
+    }
+
+    /// <summary>Imported die solid with flat facets, raised by <paramref name="off"/>; cut-away drops facets in front of y = 0.</summary>
+    private static void AddSolid(MeshGeometry3D dm, TriMeshSolid solid, double off, bool cut)
+    {
+        var v = solid.Vertices;
+        var tri = solid.Triangles;
+        for (int k = 0; k < tri.Length; k += 3)
+        {
+            var a = v[tri[k]];
+            var b = v[tri[k + 1]];
+            var c = v[tri[k + 2]];
+            var n = (b - a).Cross(c - a);
+            if (n.LengthSquared == 0) continue;
+            var nv = MapN(n.X, n.Y, n.Z);
+            nv.Normalize();
+            var poly = cut ? ClipToBack(a, b, c) : [a, b, c];
+            if (poly.Count < 3) continue;
+            int i0 = dm.Positions.Count;
+            foreach (var p in poly)
+            {
+                dm.Positions.Add(Map(p.X, p.Y, p.Z + off));
+                dm.Normals.Add(nv);
+            }
+
+            for (int q = 1; q + 1 < poly.Count; q++) AddTri(dm, i0, i0 + q, i0 + q + 1);
+        }
+    }
+
+    /// <summary>Part of triangle abc with y ≥ 0 (Sutherland–Hodgman against the cut-away plane), as a convex polygon.</summary>
+    private static List<Vec3> ClipToBack(Vec3 a, Vec3 b, Vec3 c)
+    {
+        var res = new List<Vec3>(4);
+        Vec3[] tri = [a, b, c];
+        for (int k = 0; k < 3; k++)
+        {
+            var p = tri[k];
+            var q = tri[(k + 1) % 3];
+            if (p.Y >= 0) res.Add(p);
+            if ((p.Y >= 0) != (q.Y >= 0)) res.Add(Vec3.Lerp(p, q, p.Y / (p.Y - q.Y)));
+        }
+
+        return res;
+    }
+
+    private double[] Normalised(Snapshot3D s)
+    {
+        var mesh = s.Mesh;
+        var vals = s.Field(Field);
+        var sum = new double[mesh.NodeCount];
+        var w = new double[mesh.NodeCount];
+        var t = mesh.Tets;
+        for (int e = 0; e < mesh.ElementCount; e++)
+        {
+            int a = t[4 * e], b = t[4 * e + 1], c = t[4 * e + 2], d = t[4 * e + 3];
+            var ab = new Vector3D(s.X[b] - s.X[a], s.Y[b] - s.Y[a], s.Z[b] - s.Z[a]);
+            var ac = new Vector3D(s.X[c] - s.X[a], s.Y[c] - s.Y[a], s.Z[c] - s.Z[a]);
+            var ad = new Vector3D(s.X[d] - s.X[a], s.Y[d] - s.Y[a], s.Z[d] - s.Z[a]);
+            double vol = Math.Abs(Vector3D.DotProduct(ab, Vector3D.CrossProduct(ac, ad))) / 6 + 1e-12;
+            foreach (int n in new[] { a, b, c, d })
+            {
+                sum[n] += vol * vals[e];
+                w[n] += vol;
+            }
+        }
+
+        double lo = RangeMin, hi = RangeMax;
+        double inv = hi > lo ? 1.0 / (hi - lo) : 0;
+        for (int n = 0; n < sum.Length; n++) sum[n] = Math.Clamp(((w[n] > 0 ? sum[n] / w[n] : 0) - lo) * inv, 0.001, 0.999);
+        return sum;
+    }
+
+    private double[] Normalised(StepSnapshot s)
+    {
+        var nodal = ContourPalette.NodalField(s, Field);
+        double lo = RangeMin, hi = RangeMax;
+        double inv = hi > lo ? 1.0 / (hi - lo) : 0;
+        for (int i = 0; i < nodal.Length; i++) nodal[i] = Math.Clamp((nodal[i] - lo) * inv, 0.001, 0.999);
+        return nodal;
+    }
+
+    private static void BuildRevolvedPart(MeshGeometry3D mesh, StepSnapshot s, double[] t, double a0, double a1, int segs, bool caps)
+    {
+        var loop = s.Mesh.BoundaryLoop;
+        int m = loop.Length;
+        var p2 = loop.Select(n => new Point(s.X[n], s.Y[n])).ToArray();
+        var tv = loop.Select(n => t[n]).ToArray();
+        var nrm = SegmentNormals(p2);
+        for (int k = 0; k < m; k++)
+        {
+            int k1 = (k + 1) % m;
+            if (p2[k].X < 1e-9 && p2[k1].X < 1e-9) continue; // edge on the axis
+            var na = VertexNormal(nrm, k, m);
+            var nb = VertexNormal(nrm, k1, m, start: false);
+            Revolve(mesh, p2[k], p2[k1], na, nb, tv[k], tv[k1], a0, a1, segs);
+        }
+
+        if (!caps) return;
+        var conn = s.Mesh.Connectivity;
+        foreach (double ang in new[] { a0, a1 })
+        {
+            double c = Math.Cos(ang), sn = Math.Sin(ang);
+            var normal = ang == a0 ? new Vector3D(sn, 0, -c) : new Vector3D(-sn, 0, c);
+            int baseIdx = mesh.Positions.Count;
+            for (int n = 0; n < s.Mesh.NodeCount; n++)
+            {
+                mesh.Positions.Add(new Point3D(s.X[n] * c, s.Y[n], s.X[n] * sn));
+                mesh.Normals.Add(normal);
+                mesh.TextureCoordinates.Add(new Point(t[n], 0.5));
+            }
+
+            for (int e = 0; e < s.Mesh.ElementCount; e++)
+            {
+                int i0 = baseIdx + conn[4 * e], i1 = baseIdx + conn[4 * e + 1], i2 = baseIdx + conn[4 * e + 2], i3 = baseIdx + conn[4 * e + 3];
+                AddTri(mesh, i0, i1, i2);
+                AddTri(mesh, i0, i2, i3);
+            }
+        }
+    }
+
+    private static void BuildExtrudedPart(MeshGeometry3D mesh, StepSnapshot s, double[] t, double length)
+    {
+        double z0 = -length / 2, z1 = length / 2;
+        var loop = s.Mesh.BoundaryLoop;
+        int m = loop.Length;
+        foreach (double mir in new[] { 1.0, -1.0 })
+        {
+            var p2 = loop.Select(n => new Point(mir * s.X[n], s.Y[n])).ToArray();
+            var nrm = SegmentNormals(p2);
+            for (int k = 0; k < m; k++)
+            {
+                int k1 = (k + 1) % m;
+                if (Math.Abs(p2[k].X) < 1e-9 && Math.Abs(p2[k1].X) < 1e-9) continue; // symmetry plane
+                var na = VertexNormal(nrm, k, m);
+                var nb = VertexNormal(nrm, k1, m, start: false);
+                if (mir < 0) { na = -na; nb = -nb; }
+                Extrude(mesh, p2[k], p2[k1], na, nb, t[loop[k]], t[loop[k1]], z0, z1);
+            }
+
+            var conn = s.Mesh.Connectivity;
+            foreach (double z in new[] { z0, z1 })
+            {
+                var normal = new Vector3D(0, 0, Math.Sign(z));
+                int baseIdx = mesh.Positions.Count;
+                for (int n = 0; n < s.Mesh.NodeCount; n++)
+                {
+                    mesh.Positions.Add(new Point3D(mir * s.X[n], s.Y[n], z));
+                    mesh.Normals.Add(normal);
+                    mesh.TextureCoordinates.Add(new Point(t[n], 0.5));
+                }
+
+                for (int e = 0; e < s.Mesh.ElementCount; e++)
+                {
+                    int i0 = baseIdx + conn[4 * e], i1 = baseIdx + conn[4 * e + 1], i2 = baseIdx + conn[4 * e + 2], i3 = baseIdx + conn[4 * e + 3];
+                    AddTri(mesh, i0, i1, i2);
+                    AddTri(mesh, i0, i2, i3);
+                }
+            }
+        }
+    }
+
+    private static void RevolveProfile(MeshGeometry3D mesh, List<Point> prof, double a0, double a1, int segs)
+    {
+        var nrm = SegmentNormals(prof, closed: false);
+        for (int k = 0; k < prof.Count - 1; k++)
+        {
+            if (prof[k].X < 1e-9 && prof[k + 1].X < 1e-9) continue;
+            Revolve(mesh, prof[k], prof[k + 1], nrm[k], nrm[k], 0.5, 0.5, a0, a1, segs);
+        }
+    }
+
+    private static void ExtrudeProfile(MeshGeometry3D mesh, List<Point> prof, double length)
+    {
+        var full = prof.Select(p => new Point(-p.X, p.Y)).Reverse().Concat(prof).ToList();
+        var nrm = SegmentNormals(full, closed: false);
+        for (int k = 0; k < full.Count - 1; k++)
+            Extrude(mesh, full[k], full[k + 1], nrm[k], nrm[k], 0.5, 0.5, -length / 2, length / 2);
+    }
+
+    /// <summary>Outward (right-hand) normals of polyline segments in the section plane.</summary>
+    private static Vector[] SegmentNormals(IReadOnlyList<Point> p, bool closed = true)
+    {
+        int m = p.Count;
+        int count = closed ? m : m - 1;
+        var n = new Vector[Math.Max(count, 1)];
+        for (int k = 0; k < count; k++)
+        {
+            var d = p[(k + 1) % m] - p[k];
+            var v = new Vector(d.Y, -d.X);
+            if (v.Length > 0) v.Normalize();
+            n[k] = v;
+        }
+
+        return n;
+    }
+
+    /// <summary>Smooth normal at a loop vertex unless the outline turns sharply there (keeps die-imprinted edges crisp).</summary>
+    private static Vector VertexNormal(Vector[] seg, int k, int m, bool start = true)
+    {
+        var own = start ? seg[k] : seg[(k + m - 1) % m];
+        var other = start ? seg[(k + m - 1) % m] : seg[k];
+        if (own * other < Math.Cos(35 * Math.PI / 180)) return own;
+        var v = own + other;
+        if (v.Length > 0) v.Normalize();
+        return v;
+    }
+
+    private static void Revolve(MeshGeometry3D mesh, Point a, Point b, Vector na, Vector nb, double ta, double tb, double a0, double a1, int segs)
+    {
+        int baseIdx = mesh.Positions.Count;
+        for (int j = 0; j <= segs; j++)
+        {
+            double ang = a0 + (a1 - a0) * j / segs, c = Math.Cos(ang), s = Math.Sin(ang);
+            mesh.Positions.Add(new Point3D(a.X * c, a.Y, a.X * s));
+            mesh.Normals.Add(new Vector3D(na.X * c, na.Y, na.X * s));
+            mesh.TextureCoordinates.Add(new Point(ta, 0.5));
+            mesh.Positions.Add(new Point3D(b.X * c, b.Y, b.X * s));
+            mesh.Normals.Add(new Vector3D(nb.X * c, nb.Y, nb.X * s));
+            mesh.TextureCoordinates.Add(new Point(tb, 0.5));
+        }
+
+        for (int j = 0; j < segs; j++)
+        {
+            int i = baseIdx + 2 * j;
+            AddTri(mesh, i, i + 2, i + 1);
+            AddTri(mesh, i + 1, i + 2, i + 3);
+        }
+    }
+
+    private static void Extrude(MeshGeometry3D mesh, Point a, Point b, Vector na, Vector nb, double ta, double tb, double z0, double z1)
+    {
+        int i = mesh.Positions.Count;
+        foreach (double z in new[] { z0, z1 })
+        {
+            mesh.Positions.Add(new Point3D(a.X, a.Y, z));
+            mesh.Normals.Add(new Vector3D(na.X, na.Y, 0));
+            mesh.TextureCoordinates.Add(new Point(ta, 0.5));
+            mesh.Positions.Add(new Point3D(b.X, b.Y, z));
+            mesh.Normals.Add(new Vector3D(nb.X, nb.Y, 0));
+            mesh.TextureCoordinates.Add(new Point(tb, 0.5));
+        }
+
+        AddTri(mesh, i, i + 1, i + 2);
+        AddTri(mesh, i + 1, i + 3, i + 2);
+    }
+
+    private static void AddTri(MeshGeometry3D mesh, int a, int b, int c)
+    {
+        mesh.TriangleIndices.Add(a);
+        mesh.TriangleIndices.Add(b);
+        mesh.TriangleIndices.Add(c);
+    }
+}

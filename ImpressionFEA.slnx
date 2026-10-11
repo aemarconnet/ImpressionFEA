@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ImpressionFEA.App/ImpressionFEA.App.csproj" />
+    <Project Path="src/ImpressionFEA.Core/ImpressionFEA.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ImpressionFEA.Core.Tests/ImpressionFEA.Core.Tests.csproj" />
+  </Folder>
+</Solution>

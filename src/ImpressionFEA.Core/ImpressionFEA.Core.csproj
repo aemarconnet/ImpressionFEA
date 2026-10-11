@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Source-generated P/Invoke (LibraryImport) for MKL PARDISO and cuDSS -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CSparse" Version="4.4.1" />
+    <!-- Intel MKL PARDISO (multithreaded CPU sparse direct solver); pulls in Intel OpenMP / TBB runtimes -->
+    <PackageReference Include="intelmkl.redist.win-x64" Version="2026.1.0.226" />
+    <!-- Pinned explicitly: Intel's metadata names versions (2026.1.0, 2023.1.0) that are not published as such -->
+    <PackageReference Include="intelopenmp.redist.win" Version="2026.1.0.239" />
+    <PackageReference Include="inteltbb.redist.win" Version="2023.1.0.152" />
+  </ItemGroup>
+
+  <!-- NVIDIA cuDSS GPU solver + CUDA 12 runtime / cuBLAS redistributables (see native/README.md). Optional at run time. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\native\cuda')">
+    <None Include="$(MSBuildThisFileDirectory)..\..\native\cuda\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <!-- Open CASCADE STEP reader shim + OCCT runtime (native/cad/build-cad.ps1), staged in a "cad" subfolder. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\native\cad\bin\ImpressionFeaCad.dll')">
+    <None Include="$(MSBuildThisFileDirectory)..\..\native\cad\bin\*.dll" Link="cad\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>
