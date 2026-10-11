@@ -3,6 +3,11 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
+## 0.6.1
+- Four-view layout behaves like an engineering drawing: Top, Front and Right share one scale and one centre (Top
+  aligned with Front, Front with Right) and are framed on the whole job, so the bottom die stays fixed at the bottom
+  of Front and Right while the top die and workpiece move.
+
 ## 0.6.0
 - Results: **damage** field (normalized Cockcroft–Latham, ductile tearing risk) in 2D and 3D; nodal **flow
   velocity** stored per increment with 2D and 3D arrow plots.

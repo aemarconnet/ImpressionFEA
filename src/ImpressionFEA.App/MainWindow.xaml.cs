@@ -351,6 +351,11 @@ public partial class MainWindow : Window
             await Task.Delay(500);
         }
 
+        // --scrub N shows increment N (after the solve) for the capture.
+        var argv = Environment.GetCommandLineArgs();
+        int sc = Array.IndexOf(argv, "--scrub");
+        if (sc >= 0 && sc + 1 < argv.Length && int.TryParse(argv[sc + 1], out int scrub)) vm.ScrubIndex = scrub;
+
         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
         var root = (FrameworkElement)Content;

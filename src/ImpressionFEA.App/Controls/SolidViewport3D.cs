@@ -304,8 +304,7 @@ public sealed class SolidViewport3D : Grid
     private void SetContent(Model3DGroup group)
     {
         _content.Content = group;
-        foreach (var a in _aux) a.Content.Content = group; // frozen, so shared by every view
-        if (QuadView) FitAux();
+        foreach (var a in _aux) a.Content.Content = group; // frozen, so shared by every view (framing stays fixed)
     }
 
     private void LayoutViews()
@@ -328,10 +327,37 @@ public sealed class SolidViewport3D : Grid
     }
 
     /// <summary>Frames the orthographic views on the visible bodies.</summary>
+    /// <summary>
+    /// Frames the orthographic views like an engineering drawing: one common scale and one common centre, so Top lines
+    /// up with Front (same x), Front with Right (same heights), and features are the same size in every view. The frame
+    /// is the whole job (both dies at their extreme positions), not the current content, so it never moves during the
+    /// stroke: the bottom die stays put at the bottom of Front and Right while the top die and workpiece move.
+    /// </summary>
     private void FitAux()
     {
-        if (!QuadView || _content.Content is not { } m || m.Bounds.IsEmpty) return;
-        foreach (var a in _aux) a.Fit(m.Bounds);
+        if (!QuadView || _aux.Count == 0) return;
+        Rect3D v; // view space: X = model x, Y = model z (up), Z = -model y
+        if (Die3D is not null)
+        {
+            var b = Bounds3D;
+            v = new Rect3D(b.X, b.Z, -(b.Y + b.SizeY), b.SizeX, b.SizeZ, b.SizeY);
+        }
+        else
+        {
+            // 2D results shown as solids: revolved (radius R) or extruded (part length) sections.
+            var vb = ViewBounds;
+            double r = vb.Right, depth = Die?.IsPlaneStrain == true ? PartLength : 2 * r;
+            v = new Rect3D(-r, vb.Top, -depth / 2, 2 * r, vb.Height, depth);
+        }
+
+        if (v.IsEmpty || v.SizeX <= 0) return;
+        var cell = _aux[0].Size;
+        double aspect = cell.Width > 1 && cell.Height > 1 ? cell.Width / cell.Height : 1;
+        // Top: x across, y up · Front: x across, z up · Right: y across, z up.
+        double width = 1.12 * Math.Max(Math.Max(v.SizeX, v.SizeZ * aspect), Math.Max(Math.Max(v.SizeX, v.SizeY * aspect), Math.Max(v.SizeZ, v.SizeY * aspect)));
+        var centre = new Point3D(v.X + v.SizeX / 2, v.Y + v.SizeY / 2, v.Z + v.SizeZ / 2);
+        double diag = Math.Sqrt(v.SizeX * v.SizeX + v.SizeY * v.SizeY + v.SizeZ * v.SizeZ) + 1;
+        foreach (var a in _aux) a.Frame(centre, width, diag);
     }
 
     /// <summary>An orthographic standard view (Top / Front / Right) sharing the main view's model.</summary>
@@ -378,22 +404,12 @@ public sealed class SolidViewport3D : Grid
             _dir.Color = Color.FromRgb(d, d, d);
         }
 
-        public void Fit(Rect3D b)
-        {
-            double w = Math.Max(_view.ActualWidth, 1), h = Math.Max(_view.ActualHeight, 1);
-            var right = Vector3D.CrossProduct(_look, _up);
-            double minR = double.MaxValue, maxR = double.MinValue, minU = double.MaxValue, maxU = double.MinValue;
-            for (int k = 0; k < 8; k++)
-            {
-                var p = new Vector3D(b.X + ((k & 1) != 0 ? b.SizeX : 0), b.Y + ((k & 2) != 0 ? b.SizeY : 0), b.Z + ((k & 4) != 0 ? b.SizeZ : 0));
-                double r = Vector3D.DotProduct(p, right), u = Vector3D.DotProduct(p, _up);
-                minR = Math.Min(minR, r); maxR = Math.Max(maxR, r);
-                minU = Math.Min(minU, u); maxU = Math.Max(maxU, u);
-            }
+        public Size Size => new(_view.ActualWidth, _view.ActualHeight);
 
-            var centre = new Point3D(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
-            double diag = Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ) + 1;
-            _cam.Width = 1.12 * Math.Max(maxR - minR, (maxU - minU) * w / h);
+        /// <summary>Common framing: same centre and same width (= same scale, the cells are equal) in every view.</summary>
+        public void Frame(Point3D centre, double width, double diag)
+        {
+            _cam.Width = width;
             _cam.Position = centre - 2 * diag * _look;
         }
     }
