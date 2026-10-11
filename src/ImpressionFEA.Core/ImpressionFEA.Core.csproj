@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -18,7 +18,8 @@
   </ItemGroup>
 
   <!-- NVIDIA cuDSS GPU solver + CUDA 12 runtime / cuBLAS redistributables (see native/README.md). Optional at run time. -->
-  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\native\cuda')">
+  <!-- Set IncludeCudaRuntime=false to leave them out (release packages fetch them with Get-GpuSolver.ps1). -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\native\cuda') and '$(IncludeCudaRuntime)' != 'false'">
     <None Include="$(MSBuildThisFileDirectory)..\..\native\cuda\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 

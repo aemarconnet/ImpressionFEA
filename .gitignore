@@ -19,3 +19,6 @@ DEMO_IMPORT/
 ~$*
 *.SLDPRT
 *.SLDASM
+
+# Release packages (tools/package-release.ps1)
+artifacts/

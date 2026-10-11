@@ -7,7 +7,7 @@
   "instructions": [
     "1. Press Solve. Watch the log: every increment reports the press load in tonnes, the cavity fill and the volume change.",
     "2. Hand check at first contact: load ≈ σ̄ · A = σ̄ · π · 20² mm². With σ̄ ≈ 80–90 MPa (see the Material line) that is ≈ 10–11 t; friction adds ~10 %.",
-    "3. Volume change should stay within ±0.5 %. The material is incompressible, so any change is numerical error.",
+    "3. Volume change should stay within about ±1 % at this coarse mesh (h = 4 mm). The material is incompressible, so any change is numerical error; try h = 3 mm and see it shrink.",
     "4. Switch the result field to Effective strain and scrub the slider: the dead zones under the dies barely deform, the bulge deforms most.",
     "5. Run its multi-run (friction m = 0 … 0.6) and compare the overlaid load curves: friction raises the load and the barrelling."
   ],
