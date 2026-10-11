@@ -1,7 +1,11 @@
 # Notice
 
-**ImpressionFEA** © 2026 Marconnet Technologies LLC, licensed under
-[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (see `LICENSE`).
+**ImpressionFEA** · Copyright © 2026 Marconnet Technologies LLC.
+
+This work is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License
+([CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)); the full legal text is in `LICENSE`.
+Any use, copy, adaptation or redistribution must credit "Marconnet Technologies LLC" as the original author, link
+to the license, and indicate if changes were made.
 
 ## Required attribution
 
