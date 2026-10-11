@@ -22,7 +22,6 @@ namespace ImpressionFEA.Core.ThreeD;
 /// </summary>
 public sealed class Forging3DSolver : IForgingStepper, IDisposable
 {
-    private const double RemeshQuality = 0.12;
 
     /// <summary>ANP penalty relative to the reference viscosity σ̄/ε̇ (volume error ≈ 1/factor per unit strain).</summary>
     public static double PenaltyFactor { get; set; } = 1e4;
@@ -46,6 +45,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     private readonly double _vol0;
     private readonly Vec3[] _cavity;
     private double _gap;
+    private double _ds;
+    private Vec3? _failAt;
     private double _time;
     private double _lastRel;
 
@@ -120,6 +121,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         double r0 = config.BilletRadius, dim = config.BilletDimension;
         var (seat, gap) = _die.Place(r0, dim);
         _gap0 = _gap = gap;
+        _ds = config.StrokeIncrement;
         var (min, max) = _die.BilletBounds(r0, dim, seat);
         double size = _die.Billet switch { BilletShape.VerticalCylinder => dim, BilletShape.HorizontalBar => 2 * r0, _ => max.Z - min.Z };
         _rateRef = _ram / size;
@@ -179,8 +181,29 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
     private static string F(FormattableString s) => s.ToString(Inv);
 
-    private TetMesh BuildMesh(IsosurfaceStuffing.Result res) =>
-        new(res.Points.Length, res.Tets, res.Points.Select(p => _symX && p.X == 0).ToArray(), res.Points.Select(p => _symY && p.Y == 0).ToArray());
+    private TetMesh BuildMesh(IsosurfaceStuffing.Result res) => BuildMesh(res.Points, res.Tets);
+
+    private TetMesh BuildMesh(Vec3[] points, int[] tets) =>
+        new(points.Length, tets, points.Select(p => _symX && p.X == 0).ToArray(), points.Select(p => _symY && p.Y == 0).ToArray());
+
+    /// <summary>Places where an increment failed; later remeshes refine around them (die corners are fixed in space).</summary>
+    private readonly List<(Vec3 At, int Level)> _hotSpots = [];
+
+    /// <summary>Target element size at p: h, reduced in thin flash (closed gap &lt; 2.5·h) and around hot spots, down to h / 2^levels.</summary>
+    private double TargetSize(Vec3 p)
+    {
+        int levels = _cfg.RefinementLevels;
+        if (levels <= 0) return _h;
+        double hMin = _h / (1 << levels), t = _h;
+        double zb = _cfg.RefineThinFlash ? _die.Bottom.SurfaceZ(p.X, p.Y) : double.NaN, zt = _cfg.RefineThinFlash ? _die.TopClosed.SurfaceZ(p.X, p.Y) + _gap : double.NaN;
+        if (_cfg.RefineThinFlash && double.IsFinite(zb) && double.IsFinite(zt) && zt - zb < 2.5 * _h) t = Math.Min(t, Math.Max((zt - zb) / 2.5, hMin));
+        foreach (var (at, level) in _hotSpots)
+        {
+            if ((p - at).LengthSquared < 4 * _h * _h) t = Math.Min(t, Math.Max(_h / (1 << level), hMin));
+        }
+
+        return t;
+    }
 
     private void ForceContact(NodeContact side)
     {
@@ -216,6 +239,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         _log(F($"Press        : ram {_ram:F1} mm/s, stroke {_gap0:F3} mm, Δs {_cfg.StrokeIncrement:F3} mm, ~{NominalSteps} increments"));
         _log(F($"Linear solver: {_cfg.LinearBackend} — available: {string.Join(" | ", SpdSolverFactory.Describe())}"));
         _log(F($"Numerics     : ANP penalty K {_kPen:E2} MPa·s, ε̇₀ {_rateCut:E2} 1/s, friction m {_cfg.FrictionFactor:F2}, tol {_cfg.Tolerance:E1}"));
+        _log(F($"Robustness   : auto-step {(_cfg.AutoStep ? "on" : "off")}, ≤ {_cfg.MaxCutbacks} cutbacks, local refinement {(_cfg.RefinementLevels > 0 ? F($"to h/{1 << _cfg.RefinementLevels}{(_cfg.RefineThinFlash ? " (trouble spots + thin flash)" : " (trouble spots)")}") : "off")}, remesh below q {_cfg.RemeshQuality:F2}, node budget {_cfg.MaxNodeCount:N0}"));
     }
 
     private void Allocate(TetMesh mesh, Vec3[] x)
@@ -336,7 +360,11 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         double load = 0, reaction = 0, dt = 0;
         bool ok = false;
         string why = "";
-        for (int pass = 0; pass < 2 && !ok; pass++)
+        int usedCutback = 0;
+        // Recovery ladder: (0) as is → (1) remesh → (2) remesh with local refinement around the failure → (3) one
+        // more refinement level there. Each pass re-solves the velocity field on the new mesh.
+        const int Passes = 4;
+        for (int pass = 0; pass < Passes && !ok; pass++)
         {
             PrepareStep();
             iterations = SolveVelocity(ct, out bool converged);
@@ -346,7 +374,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
                 {
                     _log(F($"  WARNING step {StepIndex}: not fully converged (|Δv|/|v| = {_lastRel:E2}); continuing."));
                 }
-                else if (pass == 0 && Remesh("stalled velocity solution"))
+                else if (pass < Passes - 1 && Remesh("stalled velocity solution"))
                 {
                     continue;
                 }
@@ -359,21 +387,46 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             double power = FinalEvaluation(out reaction);
             load = power / _ram * _symFactor;
             reaction *= _symFactor;
-            dt = Math.Min(_cfg.StrokeIncrement, _gap) / _ram;
-            if (_gap - _ram * dt < 0.05 * _cfg.StrokeIncrement) dt = _gap / _ram;
-            for (int attempt = 0; attempt < 4 && !ok; attempt++)
+            double ds = _cfg.AutoStep ? _ds : _cfg.StrokeIncrement;
+            dt = Math.Min(ds, _gap) / _ram;
+            if (_gap - _ram * dt < 0.05 * ds) dt = _gap / _ram;
+            for (int attempt = 0; attempt <= _cfg.MaxCutbacks && !ok; attempt++)
             {
                 double dta = dt / (1 << attempt);
                 ok = TryUpdate(dta, out why);
-                if (ok) dt = dta;
-                else _log(F($"  cutback {attempt + 1}: {why}"));
+                if (ok)
+                {
+                    dt = dta;
+                    usedCutback = attempt;
+                }
+                else
+                {
+                    _log(F($"  cutback {attempt + 1}: Δs {_ram * dta:F4} mm — {why}"));
+                }
             }
 
-            if (!ok && (pass > 0 || !Remesh("fold during update"))) break;
+            if (ok || pass == Passes - 1) break;
+            if (pass >= 1 && _cfg.RefinementLevels > 0 && _failAt is { } at)
+            {
+                int level = Math.Min(pass, _cfg.RefinementLevels);
+                _hotSpots.Add((at, level));
+                if (_hotSpots.Count > 64) _hotSpots.RemoveAt(0);
+                _log(F($"  recovery {pass}: local refinement to h/{1 << level} around ({at.X:F1}, {at.Y:F1}, {at.Z:F1}) mm"));
+            }
+
+            if (!Remesh(pass == 0 ? "fold during update" : F($"recovery {pass}"))) break;
         }
 
         if (!ok)
-            throw new MeshDistortionException(F($"Mesh distortion at step {StepIndex} (stroke {_gap0 - _gap:F3} mm): {why}. Results up to the previous increment are kept; refine h or reduce Δs."));
+            throw new MeshDistortionException(F($"Mesh distortion at step {StepIndex} (stroke {_gap0 - _gap:F3} mm): {why}. Automatic cutbacks, remeshing and local refinement could not recover. Results up to the previous increment are kept; try a smaller h, more refinement levels (Advanced) or larger fillets on sharp die edges."));
+
+        // Auto time-stepping: keep the increment that worked, grow back towards Δs after clean increments.
+        if (_cfg.AutoStep)
+        {
+            double used = _ram * dt;
+            _ds = usedCutback > 0 ? Math.Max(used, _cfg.StrokeIncrement / (1 << _cfg.MaxCutbacks)) : Math.Min(_cfg.StrokeIncrement, 1.5 * _ds);
+            if (usedCutback > 0) _log(F($"  auto-step: next Δs {_ds:F4} mm"));
+        }
 
         for (int e = 0; e < _ne; e++) _eps[e] += _elRate[e] * dt;
         _warm = true;
@@ -1093,10 +1146,13 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         if (gapT < 1e-9) gapT = 0;
         var xT = new Vec3[_nn];
         var cT = new NodeContact[_nn];
+        var pred = new Vec3[_nn];
+        var nrm = SurfaceNormals(_t, _x);
         double tolSep = 0.05 * _h, maxPen = 0;
         for (int n = 0; n < _nn; n++)
         {
             var p = Sym(_x[n] + dt * _vg[n], n);
+            pred[n] = p;
             var c = _contact[n];
             if (c != NodeContact.Free && !_release[n])
             {
@@ -1132,11 +1188,28 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
 
         var t = _t.Tets;
+        // Snapping nodes onto the die can flatten a tet whatever the step size, typically where several nodes are
+        // pulled onto the same sharp die edge or corner (imported CAD dies have no fillets). Leave the nodes of such
+        // tets at their predicted positions when the penetration is small; contact picks them up again next step.
+        int reverted = ImprovePlacement(_t, xT, cT, pred, nrm, gapT, 0.05);
+        if (reverted > 0) ProjectionReverts += reverted;
+        SmoothInterior(_t, xT, 0.05, 6);
         for (int e = 0; e < _ne; e++)
         {
             if (TetMesh.Quality(xT[t[4 * e]], xT[t[4 * e + 1]], xT[t[4 * e + 2]], xT[t[4 * e + 3]]) <= 0.005)
             {
                 why = F($"tetrahedron {e} collapsed");
+                _failAt = 0.25 * (xT[t[4 * e]] + xT[t[4 * e + 1]] + xT[t[4 * e + 2]] + xT[t[4 * e + 3]]);
+                if (Environment.GetEnvironmentVariable("IFEA_DEBUG") == "1")
+                {
+                    _log(F($"    q now {TetMesh.Quality(_x[t[4 * e]], _x[t[4 * e + 1]], _x[t[4 * e + 2]], _x[t[4 * e + 3]]):F4}, q pred {TetMesh.Quality(pred[t[4 * e]], pred[t[4 * e + 1]], pred[t[4 * e + 2]], pred[t[4 * e + 3]]):F4}"));
+                    for (int a = 0; a < 4; a++)
+                    {
+                        int n = t[4 * e + a];
+                        _log(F($"    node {n}: c {_contact[n]}→{cT[n]} rel {_release[n]} surf {_t.IsSurfaceNode[n]} x {_x[n].X:F3},{_x[n].Y:F3},{_x[n].Z:F3} pred {pred[n].X:F3},{pred[n].Y:F3},{pred[n].Z:F3} new {xT[n].X:F3},{xT[n].Y:F3},{xT[n].Z:F3} clrB {_die.Bottom.Clearance(pred[n], 0):F3} clrT {_die.TopClosed.Clearance(pred[n], gapT):F3} topZ {_die.TopClosed.SurfaceZ(pred[n].X, pred[n].Y) + gapT:F3} botZ {_die.Bottom.SurfaceZ(pred[n].X, pred[n].Y):F3}"));
+                    }
+                }
+
                 return false;
             }
         }
@@ -1147,6 +1220,210 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         _time += dt;
         why = "";
         return true;
+    }
+
+    /// <summary>Area-weighted outward unit normals of the workpiece surface at its surface nodes (zero elsewhere).</summary>
+    private static Vec3[] SurfaceNormals(TetMesh mesh, Vec3[] x)
+    {
+        var n = new Vec3[mesh.NodeCount];
+        var f = mesh.BoundaryFaces;
+        for (int k = 0; k < mesh.FaceIsSymmetry.Length; k++)
+        {
+            if (mesh.FaceIsSymmetry[k]) continue;
+            int a = f[3 * k], b = f[3 * k + 1], c = f[3 * k + 2];
+            var an = (x[b] - x[a]).Cross(x[c] - x[a]);
+            n[a] += an;
+            n[b] += an;
+            n[c] += an;
+        }
+
+        for (int i = 0; i < n.Length; i++)
+        {
+            if (mesh.OnX0[i]) n[i] = n[i] with { X = 0 };
+            if (mesh.OnY0[i]) n[i] = n[i] with { Y = 0 };
+            if (n[i].LengthSquared > 0) n[i] = n[i].Normalized();
+        }
+
+        return n;
+    }
+
+    /// <summary>
+    /// Moves a node that penetrates a die back to the die surface along the workpiece inward normal (−<paramref name="outward"/>)
+    /// rather than to the closest die point. At a sharp convex die edge the closest point can lie on the far face and
+    /// fold the elements; exiting along the inward normal lands next to the edge, so the surface wraps the corner.
+    /// Falls back to the closest point when no exit is found within 2·h.
+    /// </summary>
+    private Vec3 PushOut(IRigidDie die, double offset, Vec3 p, Vec3 outward)
+    {
+        if (outward.LengthSquared == 0 || die.Clearance(p, offset) >= 0) return die.Project(p, offset, out _);
+        var d = -outward;
+        double step = 0.1 * _h, lo = 0, hi = -1;
+        for (double t = step; t <= 2 * _h + 1e-12; t += step)
+        {
+            if (die.Clearance(p + t * d, offset) >= 0) { hi = t; break; }
+            lo = t;
+        }
+
+        if (hi < 0) return die.Project(p, offset, out _);
+        for (int i = 0; i < 25; i++)
+        {
+            double mid = 0.5 * (lo + hi);
+            if (die.Clearance(p + mid * d, offset) >= 0) hi = mid; else lo = mid;
+        }
+
+        return p + hi * d;
+    }
+
+    /// <summary>Largest penetration (× h) tolerated at sharp die corners to keep elements valid.</summary>
+    private const double MaxCornerPenetration = 0.3;
+
+    /// <summary>Node placements left slightly inside a die corner to keep elements valid (diagnostic).</summary>
+    public int CornerPenetrations { get; private set; }
+
+    /// <summary>Total nodes left unprojected to protect element shape (diagnostic).</summary>
+    public int ProjectionReverts { get; private set; }
+
+    /// <summary>
+    /// Quality-aware contact placement. For every die-contact node of a tet below <paramref name="qMin"/>, tries the
+    /// closest die point, the exit point along the workpiece inward normal (wraps sharp convex die edges) and — when
+    /// it barely penetrates — the unprojected position <paramref name="pred"/>, keeping whichever gives its tets the
+    /// best worst-case quality. Returns the number of nodes moved.
+    /// </summary>
+    private int ImprovePlacement(TetMesh mesh, Vec3[] x, NodeContact[] contact, Vec3[] pred, Vec3[] nrm, double gap, double qMin)
+    {
+        var t = mesh.Tets;
+        int total = 0;
+        Span<Vec3> cand = stackalloc Vec3[8];
+        for (int sweep = 0; sweep < 4; sweep++)
+        {
+            int count = 0;
+            for (int e = 0; e < mesh.ElementCount; e++)
+            {
+                if (TetMesh.Quality(x[t[4 * e]], x[t[4 * e + 1]], x[t[4 * e + 2]], x[t[4 * e + 3]]) >= qMin) continue;
+                for (int a = 0; a < 4; a++)
+                {
+                    int n = t[4 * e + a];
+                    if (contact[n] == NodeContact.Free) continue;
+                    var die = Surface(contact[n]);
+                    double off = Offset(contact[n], gap);
+                    int k = 0;
+                    var closest = SymOn(mesh, die.Project(pred[n], off, out _), n);
+                    cand[k++] = closest;
+                    var push = SymOn(mesh, PushOut(die, off, pred[n], nrm[n]), n);
+                    if ((push - pred[n]).Length <= 0.5 * _h) cand[k++] = push;
+                    double pen = -die.Clearance(pred[n], off);
+                    // Partial pushes: a node may stay slightly inside a sharp die corner (≤ MaxCornerPenetration·h)
+                    // when every full projection would invert an element; it is pushed out over the next increments.
+                    foreach (double f in (ReadOnlySpan<double>)[0.0, 0.25, 0.5, 0.75])
+                    {
+                        if (pen * (1 - f) <= MaxCornerPenetration * _h) cand[k++] = Vec3.Lerp(pred[n], closest, f);
+                    }
+
+                    var old = x[n];
+                    double best = WorstAround(mesh, x, n);
+                    int pick = -1;
+                    for (int c = 0; c < k; c++)
+                    {
+                        if (cand[c] == old) continue;
+                        x[n] = cand[c];
+                        double q = WorstAround(mesh, x, n);
+                        if (q > best + 1e-6) { best = q; pick = c; }
+                    }
+
+                    x[n] = pick >= 0 ? cand[pick] : old;
+                    if (pick < 0) continue;
+                    if (cand[pick] == pred[n] && pen < 0) contact[n] = NodeContact.Free;
+                    if (die.Clearance(cand[pick], off) < -1e-9) CornerPenetrations++;
+                    count++;
+                }
+            }
+
+            total += count;
+            if (count == 0) break;
+        }
+
+        return total;
+    }
+
+    private static Vec3 SymOn(TetMesh mesh, Vec3 p, int n) => new(mesh.OnX0[n] ? 0 : p.X, mesh.OnY0[n] ? 0 : p.Y, p.Z);
+
+    private static double WorstAround(TetMesh mesh, Vec3[] x, int n)
+    {
+        var t = mesh.Tets;
+        double q = double.MaxValue;
+        foreach (int e in mesh.TetsOf(n)) q = Math.Min(q, TetMesh.Quality(x[t[4 * e]], x[t[4 * e + 1]], x[t[4 * e + 2]], x[t[4 * e + 3]]));
+        return q;
+    }
+
+    /// <summary>
+    /// Quality-driven smoothing of interior nodes: each interior node of a tet below <paramref name="qTarget"/> moves
+    /// towards the centroid of its neighbours (full, half or quarter step) when that raises the worst quality of its
+    /// tets. Surface nodes are untouched (they carry contact and the free surface); symmetry-plane nodes stay on their
+    /// planes. Interior nodes carry no boundary condition, so this is a pure mesh (ALE-type) correction; element
+    /// state stays with the elements. Returns the number of node moves.
+    /// </summary>
+    private static int SmoothInterior(TetMesh mesh, Vec3[] x, double qTarget, int sweeps)
+    {
+        var t = mesh.Tets;
+        int moves = 0;
+        var bad = new bool[mesh.NodeCount];
+        for (int s = 0; s < sweeps; s++)
+        {
+            Array.Clear(bad);
+            bool any = false;
+            for (int e = 0; e < mesh.ElementCount; e++)
+            {
+                if (TetMesh.Quality(x[t[4 * e]], x[t[4 * e + 1]], x[t[4 * e + 2]], x[t[4 * e + 3]]) >= qTarget) continue;
+                for (int a = 0; a < 4; a++) bad[t[4 * e + a]] = true;
+                any = true;
+            }
+
+            if (!any) break;
+            int sweepMoves = 0;
+            for (int n = 0; n < mesh.NodeCount; n++)
+            {
+                if (!bad[n] || mesh.IsSurfaceNode[n]) continue;
+                var tets = mesh.TetsOf(n);
+                Vec3 sum = default;
+                int cnt = 0;
+                double worst = double.MaxValue;
+                foreach (int e in tets)
+                {
+                    for (int a = 0; a < 4; a++)
+                    {
+                        int m = t[4 * e + a];
+                        if (m == n) continue;
+                        sum += x[m];
+                        cnt++;
+                    }
+
+                    worst = Math.Min(worst, TetMesh.Quality(x[t[4 * e]], x[t[4 * e + 1]], x[t[4 * e + 2]], x[t[4 * e + 3]]));
+                }
+
+                if (cnt == 0) continue;
+                var old = x[n];
+                var c = (1.0 / cnt) * sum;
+                foreach (double lambda in (ReadOnlySpan<double>)[1.0, 0.5, 0.25])
+                {
+                    var p = old + lambda * (c - old);
+                    x[n] = new Vec3(mesh.OnX0[n] ? 0 : p.X, mesh.OnY0[n] ? 0 : p.Y, p.Z);
+                    double q = double.MaxValue;
+                    foreach (int e in tets) q = Math.Min(q, TetMesh.Quality(x[t[4 * e]], x[t[4 * e + 1]], x[t[4 * e + 2]], x[t[4 * e + 3]]));
+                    if (q > worst + 1e-6)
+                    {
+                        sweepMoves++;
+                        break;
+                    }
+
+                    x[n] = old;
+                }
+            }
+
+            moves += sweepMoves;
+            if (sweepMoves == 0) break;
+        }
+
+        return moves;
     }
 
     private double MinQuality(Vec3[] x, TetMesh mesh)
@@ -1161,8 +1438,10 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
     private string? RemeshTrigger()
     {
+        // Cheap first aid: interior-node smoothing often lifts the worst tets above the threshold without a remesh.
+        if (MinQuality(_x, _t) < _cfg.RemeshQuality) SmoothInterior(_t, _x, _cfg.RemeshQuality, 6);
         double q = MinQuality(_x, _t);
-        if (q < RemeshQuality) return F($"element quality {q:F3}");
+        if (q < _cfg.RemeshQuality) return F($"element quality {q:F3}");
         var f = _t.BoundaryFaces;
         double maxEdge = 0;
         for (int k = 0; k < f.Length; k += 3)
@@ -1192,7 +1471,6 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         try
         {
             res = IsosurfaceStuffing.Stuff(locator.Contains, min, max, _h, _symX, _symY);
-            mesh = BuildMesh(res);
         }
         catch (InvalidOperationException ex)
         {
@@ -1201,8 +1479,26 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
 
         var x = res.Points;
+        var tetsNew = res.Tets;
+        int splits = 0;
+        if (_cfg.RefinementLevels > 0)
+        {
+            (x, tetsNew, splits) = TetRefiner.Refine(x, tetsNew, TargetSize, _cfg.MaxNodeCount);
+        }
+
+        try
+        {
+            mesh = BuildMesh(x, tetsNew);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _log(F($"  remesh ({reason}) rejected: {ex.Message}"));
+            return false;
+        }
+
         var stuffed = (Vec3[])x.Clone();
         var contact = new NodeContact[mesh.NodeCount];
+        var newNrm = SurfaceNormals(mesh, x);
         double tolC = 0.12 * _h;
         for (int n = 0; n < mesh.NodeCount; n++)
         {
@@ -1212,12 +1508,15 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             else if (ctp < tolC) contact[n] = NodeContact.TopDie;
             if (contact[n] != NodeContact.Free)
             {
-                var q = Surface(contact[n]).Project(x[n], Offset(contact[n], _gap), out _);
+                var surf = Surface(contact[n]);
+                double off = Offset(contact[n], _gap);
+                var q = surf.Project(x[n], off, out _);
                 x[n] = new Vec3(mesh.OnX0[n] ? 0 : q.X, mesh.OnY0[n] ? 0 : q.Y, q.Z);
             }
         }
 
         CompensateVolume(mesh, x, contact);
+        ImprovePlacement(mesh, x, contact, stuffed, newNrm, _gap, 0.1);
 
         // In very thin sections (flash one tet thick) projecting onto both dies can flatten or invert a tet: put the
         // nodes of such tets back at their stuffed positions (on the old surface) and let contact pick them up again.
@@ -1232,6 +1531,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
                 {
                     int n = tt[4 * e + a];
                     if (x[n] == stuffed[n]) continue;
+                    // Never put a node back inside a die (corner-cutting chords of the old surface).
+                    if (Math.Min(_die.Bottom.Clearance(stuffed[n], 0), _die.TopClosed.Clearance(stuffed[n], _gap)) < -0.05 * _h) continue;
                     x[n] = stuffed[n];
                     contact[n] = NodeContact.Free;
                     reverted++;
@@ -1241,6 +1542,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             if (reverted == 0) break;
         }
 
+        SmoothInterior(mesh, x, 0.2, 10);
         double qNew = MinQuality(x, mesh);
         if (qNew < 0.02)
         {
@@ -1275,7 +1577,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         _contact = contact;
         _warm = false;
         RemeshCount++;
-        _log(F($"  REMESH #{RemeshCount} ({reason}): q_min {qOld:F3} → {qNew:F3}, {_ne} tets, {_nn} nodes, {_colPtr[^1]:N0} nnz, {sw.Elapsed.TotalMilliseconds:F0} ms"));
+        _log(F($"  REMESH #{RemeshCount} ({reason}): q_min {qOld:F3} → {qNew:F3}, {_ne} tets, {_nn} nodes{(splits > 0 ? F($" ({splits} local refinements)") : "")}, {_colPtr[^1]:N0} nnz, {sw.Elapsed.TotalMilliseconds:F0} ms"));
         return true;
     }
 
