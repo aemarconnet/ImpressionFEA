@@ -1,4 +1,4 @@
-<Window x:Class="ImpressionFEA.App.MainWindow"
+﻿<Window x:Class="ImpressionFEA.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="clr-namespace:ImpressionFEA.App.Controls"
@@ -229,7 +229,7 @@
             </Border>
 
             <!-- 3. Results viewport -->
-            <Border Grid.Column="2" Style="{StaticResource Panel}">
+            <Border x:Name="ResultsPanel" Grid.Column="2" Style="{StaticResource Panel}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -247,6 +247,18 @@
                                          IsEnabled="{Binding Analysis2D}" />
                             <RadioButton Content="3D solid" IsChecked="{Binding Is3D}" GroupName="ViewMode" VerticalAlignment="Center" Margin="10,0,0,0" />
                         </StackPanel>
+                        <Button DockPanel.Dock="Right" Content="Export ▾" Click="Export_Click" Style="{StaticResource FlatButton}" Padding="10,3" Margin="12,0,0,0"
+                                IsEnabled="{Binding HasResults}" ToolTip="Save an image, a video of the ram descent, the deformed part (STL / PLY) or a full report">
+                            <Button.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Save image (PNG)…" Click="SaveImage_Click" />
+                                    <MenuItem Header="Save video of the ram descent (WebM)…" Click="SaveVideo_Click" />
+                                    <MenuItem Header="Save deformed part (STL / PLY)…" Click="SaveSurface_Click" />
+                                    <Separator />
+                                    <MenuItem Header="Generate report (all outputs)…" Click="Report_Click" FontWeight="SemiBold" />
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <StackPanel Orientation="Horizontal" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}">
                                 <CheckBox Content="Mesh" IsChecked="{Binding ShowMesh}" />
@@ -257,16 +269,19 @@
                                 <CheckBox Content="Cut-away" IsChecked="{Binding CutAway}" IsEnabled="{Binding IsPlaneStrain, Converter={StaticResource Not}}"
                                           ToolTip="Remove a 90° sector to expose the internal section (axisymmetric parts)" />
                                 <CheckBox Content="Dies" IsChecked="{Binding ShowDies}" />
+                                <CheckBox Content="Edges" IsChecked="{Binding ShowEdges}" ToolTip="Show the element edges on the part surface and section" />
+                                <ComboBox Width="88" Margin="6,0,0,0" ItemsSource="{Binding LightingOptions}" SelectedItem="{Binding Lighting}"
+                                          ToolTip="Lighting: Uniform = ambient only, no shading (colours match the colour bar); Soft / Shaded add a headlight" />
                             </StackPanel>
                         </StackPanel>
                     </DockPanel>
                     <Border Grid.Row="1" Background="{StaticResource PanelBorder}" />
-                    <c:FieldViewport Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}"
+                    <c:FieldViewport x:Name="View2D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}"
                                      Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                      RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
                                      ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}"
                                      ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}" />
-                    <c:SolidViewport3D Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}" Die3D="{Binding ActiveDie3D}" Bounds3D="{Binding Bounds3D}"
+                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" Lighting="{Binding Lighting}" Die="{Binding ActiveDie2D}" Die3D="{Binding ActiveDie3D}" Bounds3D="{Binding Bounds3D}"
                                        Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                        RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
                                        CutAway="{Binding CutAway}" ShowDies="{Binding ShowDies}" PartLength="{Binding BilletLength}"
@@ -287,7 +302,7 @@
             </Border>
 
             <!-- 4. Telemetry -->
-            <Border Grid.Column="4" Style="{StaticResource Panel}">
+            <Border x:Name="TelemetryPanel" Grid.Column="4" Style="{StaticResource Panel}">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="TELEMETRY" Style="{StaticResource PanelTitle}" />
                     <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource PanelBorder}" />
@@ -365,7 +380,7 @@
                         </Grid>
                     </DockPanel>
                     <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource PanelBorder}" />
-                    <oxy:PlotView Model="{Binding LoadPlot}" Margin="4" Background="Transparent" />
+                    <oxy:PlotView x:Name="LoadChart" Model="{Binding LoadPlot}" Margin="4" Background="Transparent" />
                 </DockPanel>
             </Border>
         </Grid>

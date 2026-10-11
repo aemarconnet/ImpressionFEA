@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -28,6 +28,9 @@ public sealed class SolidViewport3D : Grid
     public static readonly DependencyProperty ShowFieldProperty = Reg(nameof(ShowField), typeof(bool), true, false);
     public static readonly DependencyProperty CutAwayProperty = Reg(nameof(CutAway), typeof(bool), true, false);
     public static readonly DependencyProperty ShowDiesProperty = Reg(nameof(ShowDies), typeof(bool), true, false);
+    public static readonly DependencyProperty ShowEdgesProperty = Reg(nameof(ShowEdges), typeof(bool), false, false);
+    public static readonly DependencyProperty LightingProperty = DependencyProperty.Register(nameof(Lighting), typeof(ViewLighting), typeof(SolidViewport3D),
+        new PropertyMetadata(ViewLighting.Uniform, (d, _) => ((SolidViewport3D)d).ApplyLighting()));
     public static readonly DependencyProperty PartLengthProperty = Reg(nameof(PartLength), typeof(double), 100.0, true);
     public static readonly DependencyProperty ViewBoundsProperty = Reg(nameof(ViewBounds), typeof(Rect), new Rect(0, -10, 50, 60), true);
     public static readonly DependencyProperty FieldTitleProperty = DependencyProperty.Register(nameof(FieldTitle), typeof(string), typeof(SolidViewport3D),
@@ -39,6 +42,9 @@ public sealed class SolidViewport3D : Grid
 
     private readonly PerspectiveCamera _camera = new() { FieldOfView = 35, NearPlaneDistance = 1, FarPlaneDistance = 1e5 };
     private readonly DirectionalLight _headlight = new(Color.FromRgb(0xC8, 0xC8, 0xC8), new Vector3D(-1, -1, -1));
+    private readonly AmbientLight _ambient = new(Colors.White);
+    private readonly DirectionalLight _fill = new(Color.FromRgb(0x40, 0x40, 0x40), new Vector3D(0.3, -1, 0.2));
+    private readonly Material _edgeMaterial = Frozen(new DiffuseMaterial(EdgeBrush()));
     private readonly ModelVisual3D _content = new();
     private readonly TextBlock _title = new() { Margin = new Thickness(12, 7, 0, 0), FontWeight = FontWeights.SemiBold, FontSize = 12 };
     private readonly ColorBar _bar = new() { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 30, 12, 0), Width = 84 };
@@ -94,9 +100,10 @@ public sealed class SolidViewport3D : Grid
         _dieMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(DieColor)));
 
         var lights = new Model3DGroup();
-        lights.Children.Add(new AmbientLight(Color.FromRgb(0x70, 0x70, 0x70)));
+        lights.Children.Add(_ambient);
         lights.Children.Add(_headlight);
-        lights.Children.Add(new DirectionalLight(Color.FromRgb(0x40, 0x40, 0x40), new Vector3D(0.3, -1, 0.2)));
+        lights.Children.Add(_fill);
+        ApplyLighting();
         var viewport = new Viewport3D { Camera = _camera, IsHitTestVisible = false };
         viewport.Children.Add(new ModelVisual3D { Content = lights });
         viewport.Children.Add(_content);
@@ -166,6 +173,77 @@ public sealed class SolidViewport3D : Grid
             if (refit) v.Fit();
             v.Rebuild();
         }));
+
+    /// <summary>Uniform: ambient light only (no shading; contour colours exactly as on the colour bar). Soft / Shaded add a headlight.</summary>
+    public ViewLighting Lighting { get => (ViewLighting)GetValue(LightingProperty); set => SetValue(LightingProperty, value); }
+
+    /// <summary>Draw the element edges of the workpiece surface (and section).</summary>
+    public bool ShowEdges { get => (bool)GetValue(ShowEdgesProperty); set => SetValue(ShowEdgesProperty, value); }
+
+    private void ApplyLighting()
+    {
+        (byte amb, byte head, byte fill) = Lighting switch
+        {
+            ViewLighting.Shaded => ((byte)0x70, (byte)0xC8, (byte)0x40),
+            ViewLighting.Soft => ((byte)0xB0, (byte)0x58, (byte)0x18),
+            _ => ((byte)0xFF, (byte)0x00, (byte)0x00),
+        };
+        _ambient.Color = Color.FromRgb(amb, amb, amb);
+        _headlight.Color = Color.FromRgb(head, head, head);
+        _fill.Color = Color.FromRgb(fill, fill, fill);
+    }
+
+    /// <summary>
+    /// Texture for the edge overlay: the outline of the right triangle (0,0)–(1,0)–(0,1) on a transparent background.
+    /// Every surface triangle maps its corners to those UVs, so its three edges are drawn wherever it is.
+    /// </summary>
+    private static ImageBrush EdgeBrush()
+    {
+        const int n = 256;
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xD0, 0x20, 0x26, 0x2E)), 14);
+            pen.Freeze();
+            dc.DrawLine(pen, new Point(0, 0), new Point(n, 0));
+            dc.DrawLine(pen, new Point(0, 0), new Point(0, n));
+            dc.DrawLine(pen, new Point(n, 0), new Point(0, n));
+        }
+
+        var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(n, n, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(dv);
+        bmp.Freeze();
+        var brush = new ImageBrush(bmp) { ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, 1, 1), TileMode = TileMode.None };
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>Overlay copy of every triangle of <paramref name="g"/>, nudged outwards, textured with the triangle outline.</summary>
+    private Model3D EdgeOverlay(MeshGeometry3D g)
+    {
+        var b = Bounds3D;
+        double eps = 6e-4 * Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);
+        var o = new MeshGeometry3D();
+        var idx = g.TriangleIndices;
+        for (int k = 0; k + 2 < idx.Count; k += 3)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                int i = idx[k + c];
+                o.Positions.Add(g.Positions[i] + eps * g.Normals[i]);
+                o.TextureCoordinates.Add(c == 0 ? new Point(0, 0) : c == 1 ? new Point(1, 0) : new Point(0, 1));
+            }
+
+            o.TriangleIndices.Add(k);
+            o.TriangleIndices.Add(k + 1);
+            o.TriangleIndices.Add(k + 2);
+        }
+
+        o.Freeze();
+        var m = new GeometryModel3D(o, _edgeMaterial) { BackMaterial = _edgeMaterial };
+        m.Freeze();
+        return m;
+    }
 
     private static T Frozen<T>(T f) where T : Freezable
     {
@@ -506,6 +584,7 @@ public sealed class SolidViewport3D : Grid
             var model = new GeometryModel3D(g, mat) { BackMaterial = mat };
             model.Freeze();
             group.Children.Add(model);
+            if (ShowEdges) group.Children.Add(EdgeOverlay(g));
         }
 
         if (ShowDies)
@@ -946,4 +1025,17 @@ public sealed class SolidViewport3D : Grid
         mesh.TriangleIndices.Add(b);
         mesh.TriangleIndices.Add(c);
     }
+}
+
+/// <summary>Lighting of the 3D view.</summary>
+public enum ViewLighting
+{
+    /// <summary>Ambient light only: no shading, colours exactly as on the colour bar.</summary>
+    Uniform,
+
+    /// <summary>Mostly ambient with a weak headlight.</summary>
+    Soft,
+
+    /// <summary>Headlight and fill light (strong shading).</summary>
+    Shaded,
 }

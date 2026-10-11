@@ -1,4 +1,4 @@
-using ImpressionFEA.Core.Mesh;
+﻿using ImpressionFEA.Core.Mesh;
 using ImpressionFEA.Core.ThreeD;
 
 namespace ImpressionFEA.Core.Simulation;
@@ -49,6 +49,16 @@ public abstract class ForgingSnapshot
     public required float[] MeanStress { get; init; }
 
     public required NodeContact[] Contact { get; init; }
+
+    /// <summary>Nodal material velocity of this increment, mm/s (x / radius r; y / axial z in 2D). Empty for the setup state.</summary>
+    public float[] VelocityX { get; init; } = [];
+
+    public float[] VelocityY { get; init; } = [];
+
+    /// <summary>3D only: velocity along the press axis z, mm/s.</summary>
+    public float[] VelocityZ { get; init; } = [];
+
+    public bool HasVelocity => VelocityX.Length > 0;
 
     public double LoadTonnes => LoadNewton / 9806.65;
 

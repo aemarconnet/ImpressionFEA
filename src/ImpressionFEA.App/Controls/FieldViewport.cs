@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -24,6 +24,7 @@ public sealed class FieldViewport : FrameworkElement
     public static readonly DependencyProperty MirrorProperty = Reg(nameof(Mirror), typeof(bool), true);
     public static readonly DependencyProperty ShowContactProperty = Reg(nameof(ShowContact), typeof(bool), false);
     public static readonly DependencyProperty ShowFieldProperty = Reg(nameof(ShowField), typeof(bool), true);
+    public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false);
     public static readonly DependencyProperty ViewBoundsProperty = Reg(nameof(ViewBounds), typeof(Rect), new Rect(0, -10, 50, 60));
 
     private const int Bands = ContourPalette.Bands;
@@ -75,6 +76,62 @@ public sealed class FieldViewport : FrameworkElement
     /// <summary>False for the pre-run preview: the billet is drawn flat, without a contour legend.</summary>
     public bool ShowField { get => (bool)GetValue(ShowFieldProperty); set => SetValue(ShowFieldProperty, value); }
 
+    /// <summary>Overlay arrows of the nodal material velocity (in-plane components).</summary>
+    public bool ShowVelocity { get => (bool)GetValue(ShowVelocityProperty); set => SetValue(ShowVelocityProperty, value); }
+
+    private static readonly Brush ArrowFill = Frozen(new SolidColorBrush(Color.FromRgb(0x10, 0x14, 0x18)));
+    private static readonly Pen ArrowPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x10, 0x14, 0x18))), 1.3));
+    private static readonly Pen ArrowHalo = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF))), 3.2));
+
+    /// <summary>
+    /// Velocity arrows: one node per ~24 px screen cell (so arrows never crowd), length ∝ speed (longest = 22 px), with a
+    /// light halo so they read on any contour colour. Returns the largest speed, mm/s.
+    /// </summary>
+    private double DrawVelocity(DrawingContext dc, StepSnapshot s, Func<double, double, Point> P)
+    {
+        if (!s.HasVelocity) return 0;
+        double vmax = 0;
+        for (int n = 0; n < s.NodeCount; n++) vmax = Math.Max(vmax, Math.Sqrt(s.VelocityX[n] * s.VelocityX[n] + s.VelocityY[n] * s.VelocityY[n]));
+        if (vmax <= 0) return 0;
+        const double cell = 24, maxLen = 22;
+        var used = new HashSet<(int, int)>();
+        var shafts = new StreamGeometry();
+        var heads = new StreamGeometry();
+        using (var gs = shafts.Open())
+        using (var gh = heads.Open())
+        {
+            foreach (double mirror in Mirror ? new[] { 1.0, -1.0 } : [1.0])
+            {
+                for (int n = 0; n < s.NodeCount; n++)
+                {
+                    var a = P(mirror * s.X[n], s.Y[n]);
+                    if (!used.Add(((int)Math.Floor(a.X / cell), (int)Math.Floor(a.Y / cell)))) continue;
+                    double vx = mirror * s.VelocityX[n], vy = s.VelocityY[n];
+                    double sp = Math.Sqrt(vx * vx + vy * vy);
+                    if (sp < 1e-3 * vmax) continue;
+                    double len = Math.Max(3, maxLen * sp / vmax);
+                    var d = new Vector(vx / sp, -vy / sp); // screen y points down
+                    var tip = a + len * d;
+                    var nrm = new Vector(-d.Y, d.X);
+                    double hl = Math.Min(6, 0.45 * len), hw = 0.5 * hl;
+                    gs.BeginFigure(a, false, false);
+                    gs.LineTo(tip - hl * 0.6 * d, true, false);
+                    gh.BeginFigure(tip, true, true);
+                    gh.LineTo(tip - hl * d + hw * nrm, true, false);
+                    gh.LineTo(tip - hl * d - hw * nrm, true, false);
+                }
+            }
+        }
+
+        shafts.Freeze();
+        heads.Freeze();
+        dc.DrawGeometry(null, ArrowHalo, shafts);
+        dc.DrawGeometry(ArrowFill, ArrowHalo, heads);
+        dc.DrawGeometry(null, ArrowPen, shafts);
+        dc.DrawGeometry(ArrowFill, null, heads);
+        return vmax;
+    }
+
     /// <summary>World window (mm) of the right half: X = 0 … extent, Y range.</summary>
     public Rect ViewBounds { get => (Rect)GetValue(ViewBoundsProperty); set => SetValue(ViewBoundsProperty, value); }
 
@@ -97,11 +154,13 @@ public sealed class FieldViewport : FrameworkElement
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, w, h)));
         var snap = Snapshot as StepSnapshot;
         if (snap is not null) DrawBillet(dc, snap, P, w, h);
+        double vmax = snap is not null && ShowVelocity ? DrawVelocity(dc, snap, P) : 0;
         if (Die is { } die) DrawDies(dc, die, snap?.DieGap ?? 0, P, x0, vb);
         dc.DrawLine(AxisPen, P(0, vb.Top - 5), P(0, vb.Bottom + 5));
         dc.Pop();
 
         Text(dc, FieldTitle, new Point(12, 7), 12, UiFace, Ink);
+        if (vmax > 0) Text(dc, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Flow arrows: material velocity, longest = {vmax:F1} mm/s"), new Point(12, 24), 11, UiFace, Ink);
         DrawScaleBar(dc, scale, new Point(14, h - 18));
         if (legend) DrawColorBar(dc, new Rect(w - ColorBarWidth + 6, 34, 16, Math.Min(320, h - 70)));
     }

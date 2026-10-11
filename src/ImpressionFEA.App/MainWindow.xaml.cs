@@ -196,6 +196,91 @@ public partial class MainWindow : Window
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
+    // ------------------------------------------------------------------ exports
+
+    private Export.ExportController? _exporter;
+
+    private Export.ExportController Exporter => _exporter ??= new Export.ExportController(this, Vm);
+
+    /// <summary>File-name stem for exports: geometry, material, temperature and time.</summary>
+    private string ExportBaseName()
+    {
+        string geo = string.Concat(Vm.GeometryName.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_')).Trim('_');
+        var s = Vm.CurrentRun?.Settings ?? Vm.CaptureSettings();
+        return FormattableString.Invariant($"{geo}_{s.Temperature:F0}C_{DateTime.Now:yyyyMMdd_HHmm}");
+    }
+
+    private void Export_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Button { ContextMenu: { } menu } b)
+        {
+            menu.PlacementTarget = b;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+    }
+
+    private void SaveImage_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog { Title = "Save image", Filter = "PNG image (*.png)|*.png", FileName = ExportBaseName() + ".png" };
+        if (dlg.ShowDialog(this) != true) return;
+        RunExport(() =>
+        {
+            Exporter.SaveImage(dlg.FileName, Export.VideoContent.View, 2);
+            return Task.FromResult<string?>(null);
+        }, "Save image");
+    }
+
+    private void SaveVideo_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Export.VideoExportDialog(ExportBaseName()) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        var o = dlg.Options;
+        RunExport(async () => await Exporter.SaveVideoAsync(o), "Save video");
+    }
+
+    private void SaveSurface_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Save deformed part (increment shown)",
+            Filter = "STL, binary (*.stl)|*.stl|PLY with result colours (*.ply)|*.ply|Both STL and PLY (*.stl)|*.stl",
+            FileName = ExportBaseName() + $"_step{Vm.CurrentSnapshot?.Step ?? 0}.stl",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        RunExport(() =>
+        {
+            Exporter.SaveSurface(dlg.FileName, both: dlg.FilterIndex == 3);
+            return Task.FromResult<string?>(null);
+        }, "Save deformed part");
+    }
+
+    private void Report_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Export.ReportDialog(ExportBaseName() + "_report") { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        var o = dlg.Options;
+        RunExport(async () =>
+        {
+            string html = await Exporter.GenerateReportAsync(o);
+            if (o.OpenWhenDone) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(html) { UseShellExecute = true });
+            return html;
+        }, "Generate report");
+    }
+
+    private async void RunExport(Func<Task<string?>> work, string title)
+    {
+        try
+        {
+            await work();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Vm.SetStatus(title + " failed: " + ex.Message);
+            Warn(ex.Message, title);
+        }
+    }
+
     /// <summary>The repository / install "samples" folder, if one is found above the executable.</summary>
     private static string? FindSamples()
     {

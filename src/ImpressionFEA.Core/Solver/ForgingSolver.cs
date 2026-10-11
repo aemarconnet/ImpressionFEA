@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using ImpressionFEA.Core.Geometry;
 using ImpressionFEA.Core.Materials;
@@ -1398,6 +1398,8 @@ public sealed class ForgingSolver : IForgingStepper
             EffectiveStrainRate = er,
             MeanStress = sm,
             Contact = (NodeContact[])_contact.Clone(),
+            VelocityX = initial ? [] : Enumerable.Range(0, _nn).Select(n => (float)GlobalVelocity(_v, n).X).ToArray(),
+            VelocityY = initial ? [] : Enumerable.Range(0, _nn).Select(n => (float)GlobalVelocity(_v, n).Y).ToArray(),
         };
     }
 }

@@ -410,6 +410,7 @@ public sealed partial class MainViewModel
         rec.ShownChanged += (_, _) => SyncOverlays();
         Runs.Insert(0, rec);
         SelectedRun = rec;
+        CurrentRun = rec;
         SyncOverlays();
         OnPropertyChanged(nameof(HasRuns));
     }

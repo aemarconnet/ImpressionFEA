@@ -120,7 +120,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         _selectedDie3D = DieSets3D[0];
         ApplyDieDefaults();
 
-        SolveCommand = new RelayCommand(() => _ = SolveAsync(), () => !IsRunning && !IsSweeping);
+        SolveCommand = new RelayCommand(() => _ = SolveAsync(), () => !IsRunning && !IsSweeping && !IsExporting);
         AbortCommand = new RelayCommand(() =>
         {
             _sweepAbort = true;
@@ -528,7 +528,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     public bool IsRunning => _state == RunState.Running;
 
-    public bool CanEdit => !IsRunning;
+    public bool CanEdit => !IsRunning && !IsExporting;
 
     public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }
 
@@ -709,6 +709,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
         ResetResults();
         LogCleared?.Invoke(this, EventArgs.Empty);
+        ClearRunLog();
         if (_analysis3D) Bounds3D = ComputeBounds3D(BuildConfig3D());
         else ViewBounds = ComputeBounds(BuildConfig());
         _logQueue.Enqueue(F($"=== {(_analysis3D ? "3D" : "2D")} run started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==="));
@@ -849,7 +850,9 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             var sb = new StringBuilder();
             int count = 0;
             while (count++ < 4000 && _logQueue.TryDequeue(out var line)) sb.AppendLine(line);
-            LogAppended?.Invoke(this, sb.ToString());
+            string text = sb.ToString();
+            AppendRunLog(text);
+            LogAppended?.Invoke(this, text);
         }
 
         CheckSourceFile();

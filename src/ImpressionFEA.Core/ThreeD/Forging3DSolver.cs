@@ -1720,6 +1720,9 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             EffectiveStrainRate = er,
             MeanStress = sm,
             Contact = (NodeContact[])_contact.Clone(),
+            VelocityX = initial ? [] : _vg.Select(v => (float)v.X).ToArray(),
+            VelocityY = initial ? [] : _vg.Select(v => (float)v.Y).ToArray(),
+            VelocityZ = initial ? [] : _vg.Select(v => (float)v.Z).ToArray(),
         };
     }
 }
