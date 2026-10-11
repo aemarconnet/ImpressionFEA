@@ -7,6 +7,7 @@
         xmlns:oxy="http://oxyplot.org/wpf"
         Title="ImpressionFEA"
         Width="1560" Height="940" MinWidth="1180" MinHeight="720"
+        Icon="pack://application:,,,/Assets/ImpressionFEA.ico"
         Background="{StaticResource WindowBg}" WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
@@ -32,7 +33,9 @@
         <!-- Header -->
         <Border Background="{StaticResource HeaderBg}">
             <DockPanel Margin="14,0">
-                <TextBlock DockPanel.Dock="Left" Text="IMPRESSIONFEA" Foreground="{StaticResource HeaderText}" FontWeight="Bold"
+                <Image DockPanel.Dock="Left" Source="pack://application:,,,/Assets/ImpressionFEA-256.png" Width="26" Height="26"
+                       Margin="0,0,8,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                <TextBlock DockPanel.Dock="Left" Text="ImpressionFEA" Foreground="{StaticResource HeaderText}" FontWeight="Bold"
                            FontSize="15" VerticalAlignment="Center" />
                 <TextBlock DockPanel.Dock="Left" Text="Closed-die impression forging · rigid-viscoplastic FEM" Foreground="#9AA5B1"
                            Margin="14,0,0,0" VerticalAlignment="Center" />

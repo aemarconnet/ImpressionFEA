@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/ImpressionFEA-256.png" width="160" alt="ImpressionFEA logo"></p>
+
 # ImpressionFEA — Closed-Die Impression Forging Simulator
 
 **by Marconnet Technologies LLC** · [CC BY-NC 4.0](LICENSE) · see [NOTICE.md](NOTICE.md) for attribution and third-party licenses

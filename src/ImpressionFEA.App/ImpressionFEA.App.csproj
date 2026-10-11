@@ -14,6 +14,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Explorer / taskbar icon of the exe (multi-resolution, built by assets/make-icon.ps1) -->
+    <ApplicationIcon>..\..\assets\ImpressionFEA.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Window icon and header logo -->
+    <Resource Include="..\..\assets\ImpressionFEA.ico" Link="Assets\ImpressionFEA.ico" />
+    <Resource Include="..\..\assets\ImpressionFEA-256.png" Link="Assets\ImpressionFEA-256.png" />
+  </ItemGroup>
 
 </Project>
