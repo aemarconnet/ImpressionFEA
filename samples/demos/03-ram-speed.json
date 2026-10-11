@@ -1,0 +1,22 @@
+{
+  "title": "3 · Ram speed and strain-rate sensitivity",
+  "level": "Intermediate · 2D axisymmetric · seconds per run",
+  "summary": "Hot aluminium is rate sensitive: forge a flanged shaft slowly (hydraulic press) and fast (screw press).",
+  "instructions": [
+    "1. The flow stress follows σ̄ = C·(ε₀+ε̄)ⁿ·ε̄̇ᵐ with m ≈ 0.12 for 6061 at 450 °C.",
+    "2. Run its multi-run over ram speed 10 → 1000 mm/s (a factor of 100).",
+    "3. Expected: the load rises by about 100^m ≈ 1.7×. Check the ratio of the peak loads in RUNS.",
+    "4. Switch the field to Effective strain rate and compare a slow and a fast run: the pattern is the same, the magnitude scales with speed.",
+    "5. This model is isothermal. In reality a fast press also heats the part (deformation heat) and chills it less, which lowers the load again."
+  ],
+  "setup": {
+    "analysis": "2D",
+    "preset": "Flanged shaft",
+    "material": "6061-T6",
+    "temperature": 450,
+    "friction": 0.3,
+    "ramSpeed": 50,
+    "pressCapacity": 500
+  },
+  "sweep": { "parameter": "RamSpeed", "values": [ "10", "50", "250", "1000" ] }
+}

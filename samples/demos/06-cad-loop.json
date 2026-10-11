@@ -1,0 +1,24 @@
+{
+  "title": "6 · CAD loop: edit, re-import, rerun",
+  "level": "Workflow · 3D · STEP import",
+  "summary": "The workflow for your own dies: export three bodies from CAD, simulate, change the CAD, re-import with every setting kept.",
+  "instructions": [
+    "1. In your CAD system put the bottom die, workpiece and top die in one part or assembly, in press position (dies apart, workpiece between them), and export STEP (AP214 or AP242).",
+    "2. Import STEP… and pick the top die (the one that moves down). The workpiece is the body in the middle; Z-up and Y-up models both work.",
+    "3. Set the material and temperature, press Solve, then Save setup… so the job can be reopened later.",
+    "4. Change the dies or the billet in CAD and export to the same file. A yellow 'STEP file changed' banner appears: press Re-import & solve (or Shift+click Re-import). The top die, material, mesh and press settings are kept.",
+    "5. Every run stays in RUNS with its own colour, so you can compare design iterations directly on the load / fill chart.",
+    "This demo opens the gear-blank sample; replace it with your own file."
+  ],
+  "setup": {
+    "analysis": "3D",
+    "stepFile": "../sample_gear_3bodies.step",
+    "material": "AISI 4140",
+    "temperature": 1150,
+    "friction": 0.3,
+    "elementSize": 4,
+    "strokeIncrement": 0.8,
+    "ramSpeed": 50,
+    "pressCapacity": 2000
+  }
+}

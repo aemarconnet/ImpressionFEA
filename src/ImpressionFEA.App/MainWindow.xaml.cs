@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using System.Windows.Input;
 using ImpressionFEA.App.ViewModels;
 
 namespace ImpressionFEA.App;
@@ -40,9 +41,31 @@ public partial class MainWindow : Window
             if (die3 >= 0 && die3 + 1 < args.Length && int.TryParse(args[die3 + 1], out int d3)) vm.SelectedDie3D = vm.DieSets3D[d3];
             int imp = Array.IndexOf(args, "--import");
             string? stepFile = imp >= 0 && imp + 1 < args.Length ? args[imp + 1] : null;
+            int demoArg = Array.IndexOf(args, "--demo");
+            int demoIndex = demoArg >= 0 && demoArg + 1 < args.Length && int.TryParse(args[demoArg + 1], out int di) ? di : -1;
+            int tabArg = Array.IndexOf(args, "--tab");
+            int tabIndex = tabArg >= 0 && tabArg + 1 < args.Length && int.TryParse(args[tabArg + 1], out int ti) ? ti : 0;
             Loaded += async (_, _) =>
             {
                 if (stepFile is not null) await vm.ImportStepAsync(stepFile, a => a.SuggestedTop);
+                // Smoke test of the CAD loop: --import a.step --replace-with b.step copies b over a, then re-imports.
+                int rep = Array.IndexOf(args, "--replace-with");
+                if (stepFile is not null && rep >= 0 && rep + 1 < args.Length)
+                {
+                    vm.Temperature = 1111; // a non-default value that must survive the re-import
+                    System.IO.File.Copy(args[rep + 1], stepFile, overwrite: true);
+                    await Task.Delay(2000); // let the file watcher notice
+                    await vm.ReimportAsync(solveAfter: false);
+                }
+                if (demoIndex >= 0 && demoIndex < vm.Demos.Count)
+                {
+                    var demo = vm.Demos[demoIndex];
+                    await vm.LoadDemoAsync(demo);
+                    if (args.Contains("--sweep") && demo.Sweep is { } sw && Enum.TryParse<SweepParameter>(sw.Parameter, true, out var sp))
+                        await vm.RunSweepAsync(sp, sw.Values, null);
+                }
+
+                if (tabIndex > 0 && FindName("ConfigTabs") is System.Windows.Controls.TabControl tabs) tabs.SelectedIndex = tabIndex;
                 await CaptureAsync(vm, args[cap + 1], args.Contains("--solve"));
             };
         }
@@ -65,6 +88,112 @@ public partial class MainWindow : Window
             return pick.ShowDialog() == true ? pick.SelectedTop : null;
         });
         if (error is not null) MessageBox.Show(this, error, "STEP import", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private MainViewModel Vm => (MainViewModel)DataContext;
+
+    private void Warn(string? error, string title)
+    {
+        if (error is not null) MessageBox.Show(this, error, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private async void Reimport_Click(object sender, RoutedEventArgs e) =>
+        Warn(await Vm.ReimportAsync(solveAfter: Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)), "Re-import");
+
+    private async void ReimportSolve_Click(object sender, RoutedEventArgs e) => Warn(await Vm.ReimportAsync(solveAfter: true), "Re-import");
+
+    private static string SetupFilter => $"ImpressionFEA setup (*{Core.Simulation.RunSettings.FileExtension})|*{Core.Simulation.RunSettings.FileExtension}|JSON (*.json)|*.json";
+
+    private async void OpenSetup_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Open setup", Filter = SetupFilter };
+        if (dlg.ShowDialog(this) != true) return;
+        Warn(await Vm.OpenSetupAsync(dlg.FileName), "Open setup");
+    }
+
+    private void SaveSetup_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog { Title = "Save setup", Filter = SetupFilter, FileName = "setup" + Core.Simulation.RunSettings.FileExtension };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            Vm.SaveSetup(dlg.FileName);
+        }
+        catch (System.IO.IOException ex)
+        {
+            Warn(ex.Message, "Save setup");
+        }
+    }
+
+    private void SaveTelemetry_Click(object sender, RoutedEventArgs e)
+    {
+        var run = Vm.SelectedRun ?? Vm.Runs.FirstOrDefault();
+        if (run is null) return;
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = $"Save telemetry of run #{run.Number}",
+            Filter = "CSV (*.csv)|*.csv",
+            FileName = $"run{run.Number:000}.csv",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            Vm.SaveTelemetry(dlg.FileName, run);
+        }
+        catch (System.IO.IOException ex)
+        {
+            Warn(ex.Message, "Save telemetry");
+        }
+    }
+
+    private void SaveAllTelemetry_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Folder for all runs (CSV per run + summary.csv)" };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            Vm.SaveAllTelemetry(dlg.FolderName);
+        }
+        catch (System.IO.IOException ex)
+        {
+            Warn(ex.Message, "Save telemetry");
+        }
+    }
+
+    private async void MultiRun_Click(object sender, RoutedEventArgs e) => await StartMultiRun(null, null);
+
+    private async Task StartMultiRun(SweepParameter? parameter, string? values)
+    {
+        var dlg = new MultiRunDialog(Vm, parameter, values) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        Warn(await Vm.RunSweepAsync(dlg.Parameter, dlg.Values, dlg.Folder), "Multi-run");
+    }
+
+    private async void LoadDemo_Click(object sender, RoutedEventArgs e)
+    {
+        if (Vm.SelectedDemo is not { } demo) return;
+        Warn(await Vm.LoadDemoAsync(demo), "Load demo");
+    }
+
+    private async void DemoSweep_Click(object sender, RoutedEventArgs e)
+    {
+        if (Vm.SelectedDemo is not { } demo) return;
+        string? err = await Vm.LoadDemoAsync(demo);
+        if (err is not null)
+        {
+            Warn(err, "Load demo");
+            return;
+        }
+
+        SweepParameter? p = demo.Sweep is { } s && Enum.TryParse<SweepParameter>(s.Parameter, true, out var sp) ? sp : null;
+        await StartMultiRun(p, demo.Sweep is { } sw ? string.Join(", ", sw.Values) : null);
+    }
+
+    private void OpenDemoFolder_Click(object sender, RoutedEventArgs e)
+    {
+        string folder = Vm.DemoFolder;
+        if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
     /// <summary>The repository / install "samples" folder, if one is found above the executable.</summary>

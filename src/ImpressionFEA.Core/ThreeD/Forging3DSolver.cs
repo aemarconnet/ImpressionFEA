@@ -366,6 +366,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         const int Passes = 4;
         for (int pass = 0; pass < Passes && !ok; pass++)
         {
+            _recoveryPass = pass;
             PrepareStep();
             iterations = SolveVelocity(ct, out bool converged);
             if (!converged)
@@ -414,8 +415,11 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
                 _log(F($"  recovery {pass}: local refinement to h/{1 << level} around ({at.X:F1}, {at.Y:F1}, {at.Z:F1}) mm"));
             }
 
-            if (!Remesh(pass == 0 ? "fold during update" : F($"recovery {pass}"))) break;
+            // A rejected remesh does not end the ladder: the next pass relaxes the corner tolerance / refines further.
+            Remesh(pass == 0 ? "fold during update" : F($"recovery {pass}"));
         }
+
+        _recoveryPass = 0;
 
         if (!ok)
             throw new MeshDistortionException(F($"Mesh distortion at step {StepIndex} (stroke {_gap0 - _gap:F3} mm): {why}. Automatic cutbacks, remeshing and local refinement could not recover. Results up to the previous increment are kept; try a smaller h, more refinement levels (Advanced) or larger fillets on sharp die edges."));
@@ -1274,8 +1278,15 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         return p + hi * d;
     }
 
-    /// <summary>Largest penetration (× h) tolerated at sharp die corners to keep elements valid.</summary>
-    private const double MaxCornerPenetration = 0.3;
+    /// <summary>
+    /// Penetration (× h) tolerated at sharp die corners to keep elements valid: strict normally, relaxed step by step
+    /// only while the recovery ladder handles a failing increment (accuracy first, robustness when needed).
+    /// </summary>
+    private static readonly double[] CornerPenetrationLadder = [0.1, 0.2, 0.3, 0.3];
+
+    private double MaxCornerPenetration => CornerPenetrationLadder[Math.Clamp(_recoveryPass, 0, CornerPenetrationLadder.Length - 1)];
+
+    private int _recoveryPass;
 
     /// <summary>Node placements left slightly inside a die corner to keep elements valid (diagnostic).</summary>
     public int CornerPenetrations { get; private set; }

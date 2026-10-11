@@ -1,0 +1,22 @@
+{
+  "title": "2 · Forging temperature window",
+  "level": "Beginner · 2D axisymmetric · seconds per run",
+  "summary": "The same gear blank forged at four temperatures: how much press do you save by forging hotter?",
+  "instructions": [
+    "1. Press Solve once to see the baseline at 1150 °C: the load rises sharply in the last millimetres when the flash forms.",
+    "2. Run its multi-run (1000 → 1225 °C). Each run is added to RUNS and overlaid on the chart.",
+    "3. Compare the peak loads in the RUNS list. Hotter = softer steel (C(T) falls about 0.3 % per °C) = lower load; the fill barely changes.",
+    "4. Save all… writes one CSV per run plus summary.csv (peak load vs temperature) for a spreadsheet chart.",
+    "5. Discussion: why not forge even hotter? (scale, grain growth, die life: outside this model)."
+  ],
+  "setup": {
+    "analysis": "2D",
+    "preset": "Gear blank",
+    "material": "AISI 4140",
+    "temperature": 1150,
+    "friction": 0.3,
+    "ramSpeed": 50,
+    "pressCapacity": 1500
+  },
+  "sweep": { "parameter": "Temperature", "values": [ "1000", "1075", "1150", "1225" ] }
+}

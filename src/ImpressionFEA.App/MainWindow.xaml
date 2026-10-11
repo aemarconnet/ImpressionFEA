@@ -12,6 +12,8 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <inf:InverseBooleanConverter x:Key="Not" />
+        <inf:InverseBooleanToVisibilityConverter x:Key="NotBoolToVis" />
+        <inf:NotNullToVisibilityConverter x:Key="NotNullToVis" />
         <Style x:Key="ReadLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Muted}" />
             <Setter Property="Margin" Value="0,3,8,3" />
@@ -59,61 +61,170 @@
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="CONFIGURATION" Style="{StaticResource PanelTitle}" />
                     <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource PanelBorder}" />
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="12,0,12,12" IsEnabled="{Binding CanEdit}">
-                            <TextBlock Text="Analysis" Style="{StaticResource SectionHeader}" />
-                            <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                                <RadioButton Content="2D (axisym. / plane strain)" IsChecked="{Binding Analysis2D}" GroupName="Analysis" />
-                                <RadioButton Content="3D solid" IsChecked="{Binding Analysis3D}" GroupName="Analysis" Margin="12,0,0,0" />
-                            </StackPanel>
+                    <TabControl x:Name="ConfigTabs" Margin="4,6,4,4" BorderThickness="0,1,0,0" BorderBrush="{StaticResource PanelBorder}" Background="Transparent">
+                        <!-- ============ BASIC ============ -->
+                        <TabItem Header="Basic" Padding="14,4">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Margin="8,0,8,12">
+                                    <!-- Active demo guide -->
+                                    <Border Margin="0,8,0,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Accent}" Background="#EEF4FB"
+                                            Visibility="{Binding ActiveDemo, Converter={StaticResource NotNullToVis}}">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <Button DockPanel.Dock="Right" Content="✕" Command="{Binding CloseDemoCommand}" Padding="5,0" Background="Transparent"
+                                                        BorderThickness="0" ToolTip="Hide the demo guide" />
+                                                <TextBlock Text="{Binding ActiveDemo.Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding ActiveDemo.Guide}" TextWrapping="Wrap" FontSize="11.5" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Border>
 
-                            <TextBlock Text="Geometry" Style="{StaticResource SectionHeader}" />
-                            <ComboBox ItemsSource="{Binding DieSets}" SelectedItem="{Binding SelectedDie}"
-                                      Visibility="{Binding Show2DDies, Converter={StaticResource BoolToVis}}" />
-                            <ComboBox ItemsSource="{Binding DieSets3D}" SelectedItem="{Binding SelectedDie3D}"
-                                      Visibility="{Binding Show3DDies, Converter={StaticResource BoolToVis}}" />
-                            <Button x:Name="ImportStepButton" Content="Import STEP (3 bodies)…" Click="ImportStep_Click" Style="{StaticResource FlatButton}"
-                                    Margin="0,6,0,0" HorizontalAlignment="Stretch"
-                                    ToolTip="Import a STEP assembly of bottom die, workpiece and top die. The body between the other two (by centre of gravity) is the workpiece; you pick the moving top die." />
-                            <TextBlock Text="{Binding DieDescription}" Style="{StaticResource Note}" />
-                            <TextBlock Text="{Binding SymmetryText}" Style="{StaticResource Note}" />
-                            <StackPanel Visibility="{Binding BilletEditable, Converter={StaticResource BoolToVis}}">
-                                <c:NumericField Label="{Binding RadiusLabel}" Unit="mm" Value="{Binding BilletRadius}" Format="F2" />
-                                <c:NumericField Label="Billet height H" Unit="mm" Value="{Binding BilletHeight}" Format="F2" IsEnabled="{Binding HeightEnabled}" />
-                                <c:NumericField Label="{Binding LengthLabel}" Unit="mm" Value="{Binding BilletLength}" Format="F1"
-                                                IsEnabled="{Binding LengthEnabled}" ToolTip="Plane strain: out-of-plane length. 3D bar: bar length." />
-                            </StackPanel>
-                            <TextBlock Text="{Binding VolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+                                    <StackPanel IsEnabled="{Binding CanEdit}">
+                                        <TextBlock Text="Analysis" Style="{StaticResource SectionHeader}" />
+                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                            <RadioButton Content="2D (axisym. / plane strain)" IsChecked="{Binding Analysis2D}" GroupName="Analysis" />
+                                            <RadioButton Content="3D solid" IsChecked="{Binding Analysis3D}" GroupName="Analysis" Margin="12,0,0,0" />
+                                        </StackPanel>
 
-                            <TextBlock Text="Material" Style="{StaticResource SectionHeader}" />
-                            <ComboBox ItemsSource="{Binding Materials}" SelectedItem="{Binding SelectedMaterial}" />
-                            <TextBlock Text="σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ, isothermal" Style="{StaticResource Note}" />
-                            <c:NumericField Label="Temperature T" Unit="°C" Value="{Binding Temperature}" Format="F0" />
-                            <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Format="F2"
-                                            ToolTip="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
-                            <TextBlock Text="{Binding MaterialText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+                                        <TextBlock Text="Geometry" Style="{StaticResource SectionHeader}" />
+                                        <ComboBox ItemsSource="{Binding DieSets}" SelectedItem="{Binding SelectedDie}"
+                                                  Visibility="{Binding Show2DDies, Converter={StaticResource BoolToVis}}" />
+                                        <ComboBox ItemsSource="{Binding DieSets3D}" SelectedItem="{Binding SelectedDie3D}"
+                                                  Visibility="{Binding Show3DDies, Converter={StaticResource BoolToVis}}" />
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="6" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Button Content="Import STEP (3 bodies)…" Click="ImportStep_Click" Style="{StaticResource FlatButton}"
+                                                    ToolTip="Import a STEP assembly of bottom die, workpiece and top die. The body between the other two (by centre of gravity) is the workpiece; you pick the moving top die." />
+                                            <Button Grid.Column="2" Content="Re-import" Click="Reimport_Click" Style="{StaticResource FlatButton}" IsEnabled="{Binding CanReimport}"
+                                                    ToolTip="Re-read the STEP file if it changed on disk, keeping the top die and every setting. Shift+click: re-import and solve." />
+                                        </Grid>
+                                        <Border Margin="0,6,0,0" Padding="8,5" BorderThickness="1" BorderBrush="{StaticResource Warn}" Background="#FFF8EC"
+                                                Visibility="{Binding SourceChanged, Converter={StaticResource BoolToVis}}">
+                                            <DockPanel>
+                                                <Button DockPanel.Dock="Right" Content="Re-import &amp; solve" Click="ReimportSolve_Click" Style="{StaticResource FlatButton}" Padding="8,2" />
+                                                <TextBlock Text="The STEP file changed on disk." Foreground="{StaticResource Warn}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                            </DockPanel>
+                                        </Border>
+                                        <TextBlock Text="{Binding SourceText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" FontSize="10.5"
+                                                   Visibility="{Binding CanReimport, Converter={StaticResource BoolToVis}}" />
+                                        <TextBlock Text="{Binding DieDescription}" Style="{StaticResource Note}" />
+                                        <TextBlock Text="{Binding SymmetryText}" Style="{StaticResource Note}" />
+                                        <StackPanel Visibility="{Binding BilletEditable, Converter={StaticResource BoolToVis}}">
+                                            <c:NumericField Label="{Binding RadiusLabel}" Unit="mm" Value="{Binding BilletRadius}" Format="F2" />
+                                            <c:NumericField Label="Billet height H" Unit="mm" Value="{Binding BilletHeight}" Format="F2" IsEnabled="{Binding HeightEnabled}" />
+                                            <c:NumericField Label="{Binding LengthLabel}" Unit="mm" Value="{Binding BilletLength}" Format="F1"
+                                                            IsEnabled="{Binding LengthEnabled}" ToolTip="Plane strain: out-of-plane length. 3D bar: bar length." />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding VolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
-                            <TextBlock Text="Mesh" Style="{StaticResource SectionHeader}" />
-                            <c:NumericField Label="Target element size h" Unit="mm" Value="{Binding ElementSize}" Format="F2" />
-                            <TextBlock Text="{Binding MeshText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
-                            <StackPanel Visibility="{Binding Analysis3D, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="Linear solver (3D)" Foreground="{StaticResource Ink}" Margin="0,6,0,0" />
-                                <ComboBox ItemsSource="{Binding Backends}" SelectedItem="{Binding SelectedBackend}" />
-                                <TextBlock Text="{Binding BackendInfo}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" FontSize="10.5" />
-                            </StackPanel>
+                                        <TextBlock Text="Material" Style="{StaticResource SectionHeader}" />
+                                        <ComboBox ItemsSource="{Binding Materials}" SelectedItem="{Binding SelectedMaterial}" />
+                                        <TextBlock Text="σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ, isothermal" Style="{StaticResource Note}" />
+                                        <c:NumericField Label="Temperature T" Unit="°C" Value="{Binding Temperature}" Format="F0" />
+                                        <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Format="F2"
+                                                        ToolTip="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
+                                        <TextBlock Text="{Binding MaterialText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
-                            <TextBlock Text="Press" Style="{StaticResource SectionHeader}" />
-                            <c:NumericField Label="Ram speed v" Unit="mm/s" Value="{Binding RamSpeed}" Format="F1" />
-                            <c:NumericField Label="Stroke increment Δs" Unit="mm" Value="{Binding StrokeIncrement}" Format="F3" />
-                            <c:NumericField Label="Press capacity" Unit="t" Value="{Binding PressCapacity}" Format="F0" />
-                            <TextBlock Text="{Binding PressText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+                                        <TextBlock Text="Mesh" Style="{StaticResource SectionHeader}" />
+                                        <c:NumericField Label="Target element size h" Unit="mm" Value="{Binding ElementSize}" Format="F2" />
+                                        <TextBlock Text="{Binding MeshText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
-                            <Border Margin="0,12,0,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Warn}" Background="#FFF8EC"
-                                    Visibility="{Binding HasInputWarning, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="{Binding InputWarning}" Foreground="{StaticResource Warn}" TextWrapping="Wrap" FontSize="11" />
-                            </Border>
-                        </StackPanel>
-                    </ScrollViewer>
+                                        <TextBlock Text="Press" Style="{StaticResource SectionHeader}" />
+                                        <c:NumericField Label="Ram speed v" Unit="mm/s" Value="{Binding RamSpeed}" Format="F1" />
+                                        <c:NumericField Label="Press capacity" Unit="t" Value="{Binding PressCapacity}" Format="F0" />
+                                        <TextBlock Text="{Binding PressText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
+
+                                        <Border Margin="0,12,0,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Warn}" Background="#FFF8EC"
+                                                Visibility="{Binding HasInputWarning, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="{Binding InputWarning}" Foreground="{StaticResource Warn}" TextWrapping="Wrap" FontSize="11" />
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <!-- ============ ADVANCED ============ -->
+                        <TabItem Header="Advanced" Padding="14,4">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Margin="8,0,8,12" IsEnabled="{Binding CanEdit}">
+                                    <TextBlock Text="Increment" Style="{StaticResource SectionHeader}" />
+                                    <c:NumericField Label="Stroke increment Δs" Unit="mm" Value="{Binding StrokeIncrement}" Format="F3" />
+                                    <TextBlock Style="{StaticResource Note}" Text="Nominal ram travel per increment (≤ 0.4·h). With auto time-stepping the solver shrinks it where needed and grows it back." />
+
+                                    <TextBlock Text="Robustness (3D solver)" Style="{StaticResource SectionHeader}" />
+                                    <CheckBox Content="Auto time-stepping" IsChecked="{Binding AutoStep}" Margin="0,4,0,0" />
+                                    <TextBlock Style="{StaticResource Note}" Text="After a cutback keep the smaller increment, then grow it back ×1.5 per clean increment." />
+                                    <DockPanel Margin="0,6,0,0">
+                                        <ComboBox DockPanel.Dock="Right" Width="70" ItemsSource="{Binding CutbackChoices}" SelectedItem="{Binding MaxCutbacks}" />
+                                        <TextBlock Text="Max cutbacks per increment" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <TextBlock Style="{StaticResource Note}" Text="Halvings tried before remeshing; the smallest increment is Δs / 2ⁿ." />
+                                    <DockPanel Margin="0,6,0,0">
+                                        <ComboBox DockPanel.Dock="Right" Width="70" ItemsSource="{Binding RefinementChoices}" SelectedItem="{Binding RefinementLevels}" />
+                                        <TextBlock Text="Local refinement levels" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <TextBlock Style="{StaticResource Note}" Text="When an increment cannot be recovered by cutbacks and a remesh, the mesh is refined around the failure (die corners, flash) down to h / 2ⁿ. 0 = uniform mesh only." />
+                                    <CheckBox Content="Also refine thin flash regions" IsChecked="{Binding RefineThinFlash}" Margin="0,6,0,0" />
+                                    <TextBlock Style="{StaticResource Note}" Text="Refines wherever the closed die gap is under 2.5·h. Better flash resolution; more nodes and solve time." />
+                                    <c:NumericField Label="Remesh below quality" Unit="–" Value="{Binding RemeshQualityThreshold}" Format="F2"
+                                                    ToolTip="Normalised element quality (1 = regular tetrahedron). Lower = fewer remeshes, higher = earlier remeshing." />
+                                    <c:NumericField Label="Node budget" Unit="nodes" Value="{Binding MaxNodeCount}" Format="F0"
+                                                    ToolTip="Upper limit for the initial mesh and for local refinement (memory and time grow with it)." />
+
+                                    <TextBlock Text="Nonlinear solver (3D)" Style="{StaticResource SectionHeader}" />
+                                    <c:NumericField Label="Max iterations per increment" Unit="" Value="{Binding MaxIterations}" Format="F0" />
+                                    <c:NumericField Label="Convergence tolerance |Δv|/|v|" Unit="" Value="{Binding Tolerance}" Format="0.0E+0" />
+
+                                    <TextBlock Text="Linear solver (3D)" Style="{StaticResource SectionHeader}" />
+                                    <ComboBox ItemsSource="{Binding Backends}" SelectedItem="{Binding SelectedBackend}" />
+                                    <TextBlock Text="{Binding BackendInfo}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" FontSize="10.5" />
+
+                                    <Button Content="Reset to recommended" Command="{Binding ResetAdvancedCommand}" Style="{StaticResource FlatButton}"
+                                            HorizontalAlignment="Left" Margin="0,14,0,0" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <!-- ============ DEMOS ============ -->
+                        <TabItem Header="Demos" Padding="14,4">
+                            <DockPanel Margin="8,8,8,8">
+                                <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="6" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button Content="Load demo" Click="LoadDemo_Click" Style="{StaticResource PrimaryButton}" IsEnabled="{Binding CanEdit}" />
+                                        <Button Grid.Column="2" Content="Run its multi-run…" Click="DemoSweep_Click" Style="{StaticResource FlatButton}" IsEnabled="{Binding CanEdit}"
+                                                ToolTip="Load the demo, then open Multi-run with the demo's suggested sweep" />
+                                    </Grid>
+                                    <TextBlock Style="{StaticResource Note}" Margin="0,8,0,0" TextWrapping="Wrap">
+                                        <Run Text="Demos are JSON files (setup + instructions + suggested sweep). Add or edit them in" />
+                                        <Hyperlink Click="OpenDemoFolder_Click"><Run Text="samples/demos" /></Hyperlink>
+                                        <Run Text="and press" />
+                                        <Hyperlink Command="{Binding ReloadDemosCommand}"><Run Text="Reload" /></Hyperlink><Run Text="." />
+                                    </TextBlock>
+                                </StackPanel>
+                                <ListBox ItemsSource="{Binding Demos}" SelectedItem="{Binding SelectedDemo}" BorderBrush="{StaticResource PanelBorder}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" MouseDoubleClick="LoadDemo_Click">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="2,5,2,7">
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Level}" Foreground="{StaticResource Accent}" FontSize="11" />
+                                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="11.5" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </TabItem>
+                    </TabControl>
                 </DockPanel>
             </Border>
 
@@ -209,6 +320,51 @@
                         <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding ReadMesh}" Style="{StaticResource ReadValue}" />
                     </Grid>
                     <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource PanelBorder}" />
+                    <!-- Run history: every finished run, overlaid on the chart when ticked -->
+                    <DockPanel DockPanel.Dock="Bottom" Margin="10,6,10,6" Height="196">
+                        <DockPanel DockPanel.Dock="Top">
+                            <TextBlock Text="RUNS" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <StackPanel.Resources>
+                                    <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                        <Setter Property="Padding" Value="8,2" />
+                                        <Setter Property="FontSize" Value="11" />
+                                        <Setter Property="Margin" Value="4,0,0,0" />
+                                    </Style>
+                                </StackPanel.Resources>
+                                <Button Content="Multi-run…" Click="MultiRun_Click" IsEnabled="{Binding CanEdit}"
+                                        ToolTip="Run the current setup for several values of one parameter (temperature, friction, ram speed, …)" />
+                                <Button Content="Save CSV…" Click="SaveTelemetry_Click" IsEnabled="{Binding HasRuns}"
+                                        ToolTip="Save the selected run's telemetry (one row per increment) as CSV, plus its setup" />
+                                <Button Content="Save all…" Click="SaveAllTelemetry_Click" IsEnabled="{Binding HasRuns}"
+                                        ToolTip="Save every run's telemetry and a summary.csv into a folder" />
+                                <Button Content="Show/hide" Command="{Binding ShowAllRunsCommand}" ToolTip="Show or hide all overlays" />
+                                <Button Content="Clear" Command="{Binding ClearRunsCommand}" />
+                            </StackPanel>
+                        </DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding SweepText}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" FontSize="11"
+                                   Margin="0,3,0,0" Visibility="{Binding IsSweeping, Converter={StaticResource BoolToVis}}" />
+                        <Grid>
+                            <ListBox ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRun}" Margin="0,4,0,0" BorderBrush="{StaticResource PanelBorder}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel ToolTip="{Binding Label}">
+                                            <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsShown}" VerticalAlignment="Center" ToolTip="Overlay on the chart" />
+                                            <Rectangle DockPanel.Dock="Left" Width="12" Height="3" Fill="{Binding Swatch}" Margin="2,0,6,0" VerticalAlignment="Center" />
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" FontFamily="{StaticResource Mono}" FontSize="10.5" Margin="6,0,0,0"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" FontSize="11.5" VerticalAlignment="Center" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock Text="Finished runs appear here. Tick a run to overlay its load and fill curves; use Multi-run to sweep temperature, friction or speed."
+                                       TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="11" Margin="10,14,10,0" IsHitTestVisible="False"
+                                       Visibility="{Binding HasRuns, Converter={StaticResource NotBoolToVis}}" />
+                        </Grid>
+                    </DockPanel>
+                    <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource PanelBorder}" />
                     <oxy:PlotView Model="{Binding LoadPlot}" Margin="4" Background="Transparent" />
                 </DockPanel>
             </Border>
@@ -219,8 +375,15 @@
             <DockPanel LastChildFill="True">
                 <Button DockPanel.Dock="Left" Content="Solve FEA Simulation" Command="{Binding SolveCommand}" Style="{StaticResource PrimaryButton}" />
                 <Button DockPanel.Dock="Left" Content="Abort" Command="{Binding AbortCommand}" Style="{StaticResource FlatButton}" Margin="6,0,0,0" />
+                <Border DockPanel.Dock="Left" Width="1" Background="{StaticResource PanelBorder}" Margin="10,2" />
+                <Button DockPanel.Dock="Left" Content="Open setup…" Click="OpenSetup_Click" Style="{StaticResource FlatButton}" IsEnabled="{Binding CanEdit}"
+                        ToolTip="Open a saved setup (*.ifea.json): geometry or STEP file, material and every setting" />
+                <Button DockPanel.Dock="Left" Content="Save setup…" Click="SaveSetup_Click" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
+                        ToolTip="Save every input (including the STEP file path and top die) to reopen or rerun later" />
                 <Button DockPanel.Dock="Left" Content="Import STEP…" Click="ImportStep_Click" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
                         IsEnabled="{Binding CanEdit}" ToolTip="Import a 3-body STEP assembly (bottom die, workpiece, top die)" />
+                <Button DockPanel.Dock="Left" Content="Re-import" Click="Reimport_Click" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
+                        IsEnabled="{Binding CanReimport}" ToolTip="Re-read the STEP file if it changed, keeping every setting (Shift+click: re-import and solve)" />
                 <Border DockPanel.Dock="Left" Width="1" Background="{StaticResource PanelBorder}" Margin="12,2" />
                 <Border x:Name="StateLamp" DockPanel.Dock="Left" Width="10" Height="10" VerticalAlignment="Center" Background="{StaticResource Muted}">
                     <Border.Style>

@@ -49,7 +49,7 @@ public sealed record BackendOption(LinearBackend Backend, string Name)
 /// increment snapshots through <see cref="Dispatcher.InvokeAsync(Action)"/>. Handles both the 2D (axisymmetric /
 /// plane strain) and the 3D analysis.
 /// </summary>
-public sealed class MainViewModel : ObservableObject, ISimulationObserver
+public sealed partial class MainViewModel : ObservableObject, ISimulationObserver
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -120,13 +120,18 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
         _selectedDie3D = DieSets3D[0];
         ApplyDieDefaults();
 
-        SolveCommand = new RelayCommand(() => _ = SolveAsync(), () => !IsRunning);
-        AbortCommand = new RelayCommand(() => _cts?.Cancel(), () => IsRunning);
+        SolveCommand = new RelayCommand(() => _ = SolveAsync(), () => !IsRunning && !IsSweeping);
+        AbortCommand = new RelayCommand(() =>
+        {
+            _sweepAbort = true;
+            _cts?.Cancel();
+        }, () => IsRunning || IsSweeping);
         LoadPlot = BuildPlot();
 
         _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, (_, _) => Tick(), _dispatcher);
         _timer.Start();
         RefreshDerived();
+        LoadDemos();
         _ = ProbeBackendsAsync();
     }
 
@@ -139,64 +144,6 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
 
     /// <summary>3D presets plus die sets imported from STEP during this session.</summary>
     public ObservableCollection<DieSet3D> DieSets3D { get; }
-
-    /// <summary>
-    /// Imports a 3-body STEP assembly: reads and classifies the bodies (off the UI thread), asks the view which outer
-    /// body is the moving top die, then adds and selects the resulting 3D die set. Returns an error message or null.
-    /// </summary>
-    public async Task<string?> ImportStepAsync(string path, Func<ForgingAssembly, CadBody?> chooseTopDie)
-    {
-        ArgumentNullException.ThrowIfNull(chooseTopDie);
-        StatusText = "Reading STEP file " + System.IO.Path.GetFileName(path) + "…";
-        ForgingAssembly asm;
-        try
-        {
-            asm = await Task.Run(() => ForgingAssembly.Classify(System.IO.Path.GetFileName(path), StepImporter.Read(path)));
-        }
-        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or IOException)
-        {
-            StatusText = "STEP import failed.";
-            _logQueue.Enqueue("STEP IMPORT ERROR: " + ex.Message);
-            return ex.Message;
-        }
-
-        foreach (var b in asm.Bodies)
-        {
-            _logQueue.Enqueue(F($"STEP body {b.Index + 1}: volume {b.Volume / 1000:F2} cm³, COG ({b.CenterOfGravity.X:F2}, {b.CenterOfGravity.Y:F2}, {b.CenterOfGravity.Z:F2}) mm, {b.Mesh.Triangles.Length / 3:N0} facets"));
-        }
-
-        var top = chooseTopDie(asm);
-        if (top is null)
-        {
-            StatusText = "STEP import cancelled.";
-            return null;
-        }
-
-        DieSet3D die;
-        try
-        {
-            die = await Task.Run(() =>
-            {
-                var d = asm.BuildDieSet(top, _logQueue.Enqueue);
-                d.CavityVolume();
-                d.Place(0, 0);
-                return d;
-            });
-        }
-        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException)
-        {
-            StatusText = "STEP import failed.";
-            _logQueue.Enqueue("STEP IMPORT ERROR: " + ex.Message);
-            return ex.Message;
-        }
-
-        DieSets3D.Add(die);
-        Analysis3D = true;
-        SelectedDie3D = die;
-        Is3D = true;
-        StatusText = "Imported " + asm.Name + ". Assign the workpiece material and press Solve.";
-        return null;
-    }
 
     public IReadOnlyList<MaterialPreset> Materials { get; }
 
@@ -220,6 +167,7 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
         {
             if (!Set(ref _analysis3D, value)) return;
             OnPropertyChanged(nameof(Analysis2D));
+            OnWorkflowChanged();
             ClearResults();
             ApplyDieDefaults();
             if (value) Is3D = true;
@@ -252,9 +200,13 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
         get => _selectedDie3D;
         set
         {
+            if (value is null) return; // the ComboBox pushes null while its item list changes
             if (!Set(ref _selectedDie3D, value)) return;
             ClearResults();
-            ApplyDieDefaults();
+            if (_keepSettings) OnDieChangedKeepingSettings();
+            else ApplyDieDefaults();
+            SourceChanged = false;
+            OnWorkflowChanged();
             RefreshDerived();
         }
     }
@@ -302,6 +254,13 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
     }
 
     private bool IsBar => _analysis3D && _selectedDie3D.Billet == BilletShape.HorizontalBar;
+
+    /// <summary>Re-import with settings kept: only refresh the derived labels for the (same kind of) die.</summary>
+    private void OnDieChangedKeepingSettings()
+    {
+        foreach (var n in new[] { nameof(IsPlaneStrain), nameof(RadiusLabel), nameof(LengthLabel), nameof(SymmetryText), nameof(HeightEnabled), nameof(LengthEnabled), nameof(Show2DDies), nameof(Show3DDies), nameof(ActiveDie2D), nameof(ActiveDie3D), nameof(BilletEditable), nameof(IsImported) })
+            OnPropertyChanged(n);
+    }
 
     private void ApplyDieDefaults()
     {
@@ -433,6 +392,14 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
         ElementSize = _elementSize,
         StrokeIncrement = _strokeIncrement,
         RamSpeed = _ramSpeed,
+        AutoStep = _autoStep,
+        MaxCutbacks = _maxCutbacks,
+        RefinementLevels = _refinementLevels,
+        RefineThinFlash = _refineThinFlash,
+        RemeshQuality = _remeshQuality,
+        MaxNodeCount = _maxNodeCount,
+        MaxIterations = _maxIterations,
+        Tolerance = _tolerance,
     };
 
     private double Cavity3D(DieSet3D die)
@@ -554,6 +521,7 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
             OnPropertyChanged(nameof(IsRunning));
             OnPropertyChanged(nameof(CanEdit));
             OnPropertyChanged(nameof(CanScrub));
+            OnPropertyChanged(nameof(CanReimport));
             CommandManager.InvalidateRequerySuggested();
         }
     }
@@ -720,6 +688,7 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
 
     private async Task SolveAsync()
     {
+        var settings = CaptureSettings();
         IReadOnlyList<string> errors = _analysis3D ? BuildConfig3D().Validate() : BuildConfig().Validate();
         if (errors.Count > 0)
         {
@@ -785,6 +754,7 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
         OnPropertyChanged(nameof(CanScrub));
         _scrubIndex = -1;
         ScrubIndex = ScrubMaximum;
+        AddRunRecord(result, settings, _clock.Elapsed);
         Tick();
     }
 
@@ -882,6 +852,7 @@ public sealed class MainViewModel : ObservableObject, ISimulationObserver
             LogAppended?.Invoke(this, sb.ToString());
         }
 
+        CheckSourceFile();
         var t = _clock.Elapsed;
         ElapsedText = F($"{(int)t.TotalMinutes:00}:{t.Seconds:00}.{t.Milliseconds / 100}");
         if (_plotDirty)

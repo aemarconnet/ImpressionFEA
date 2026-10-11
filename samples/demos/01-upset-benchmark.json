@@ -1,0 +1,26 @@
+{
+  // Demos are plain JSON: "setup" is an ImpressionFEA setup (the same as Save setup), "instructions" is the guide shown
+  // in the app, "sweep" is the suggested Multi-run. Paths are relative to this folder. Comments and trailing commas are allowed.
+  "title": "1 · Upset benchmark: can I trust the solver?",
+  "level": "Beginner · 3D · STEP import · ~30 s per run",
+  "summary": "Squash a Ø40 × 51 mm steel billet between flat dies and check the press load against a hand calculation.",
+  "instructions": [
+    "1. Press Solve. Watch the log: every increment reports the press load in tonnes, the cavity fill and the volume change.",
+    "2. Hand check at first contact: load ≈ σ̄ · A = σ̄ · π · 20² mm². With σ̄ ≈ 80–90 MPa (see the Material line) that is ≈ 10–11 t; friction adds ~10 %.",
+    "3. Volume change should stay within ±0.5 %. The material is incompressible, so any change is numerical error.",
+    "4. Switch the result field to Effective strain and scrub the slider: the dead zones under the dies barely deform, the bulge deforms most.",
+    "5. Run its multi-run (friction m = 0 … 0.6) and compare the overlaid load curves: friction raises the load and the barrelling."
+  ],
+  "setup": {
+    "analysis": "3D",
+    "stepFile": "../sample_upset_3bodies.step",
+    "material": "AISI 4140",
+    "temperature": 1150,
+    "friction": 0.3,
+    "elementSize": 4,
+    "strokeIncrement": 1.0,
+    "ramSpeed": 50,
+    "pressCapacity": 100
+  },
+  "sweep": { "parameter": "Friction", "values": [ "0", "0.15", "0.3", "0.6" ] }
+}

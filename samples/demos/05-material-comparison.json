@@ -1,0 +1,21 @@
+{
+  "title": "5 · Same die, four materials",
+  "level": "Beginner · 2D axisymmetric · seconds per run",
+  "summary": "Upset the same billet in steel, aluminium, copper and modelling plasticine, each at its usual forging temperature.",
+  "instructions": [
+    "1. Run its multi-run: the material sweep sets each alloy's default forging temperature automatically.",
+    "2. Compare the peak loads: hot steel and copper are similar, aluminium is lower, plasticine is hundreds of times lower.",
+    "3. Physical modelling: plasticine at room temperature flows like hot steel (similar strain hardening and rate sensitivity), so it is used to study die fill on a bench before cutting steel dies.",
+    "4. Divide the steel load by the plasticine load: that is the scale factor between a plasticine trial and production."
+  ],
+  "setup": {
+    "analysis": "2D",
+    "preset": "Simple upset block",
+    "material": "AISI 4140",
+    "temperature": 1150,
+    "friction": 0.3,
+    "ramSpeed": 50,
+    "pressCapacity": 500
+  },
+  "sweep": { "parameter": "Material", "values": [ "AISI 4140", "6061-T6", "C11000", "Modeling plasticine" ] }
+}

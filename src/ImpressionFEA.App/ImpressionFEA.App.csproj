@@ -24,4 +24,9 @@
     <Resource Include="..\..\assets\ImpressionFEA-256.png" Link="Assets\ImpressionFEA-256.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Sample STEP assemblies and the curated demos (samples/demos/*.json) ship next to the exe -->
+    <None Include="..\..\samples\**\*" Link="samples\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
 </Project>

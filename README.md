@@ -64,6 +64,34 @@ To enable STEP import, download the OCCT 8.0.1 Windows packages (`opencascade-re
 `native/cad/build-cad.ps1`, then run that script with Visual Studio 2022 C++ tools installed. Without it, the app
 runs normally and the Import button explains that STEP support is missing.
 
+### Re-import (CAD loop)
+
+**Re-import** re-reads the selected imported STEP file, keeping the same top die and every setting (material,
+temperature, mesh, press, advanced). If the file hasn't changed (SHA-256), nothing is rebuilt. While a STEP-based
+job is selected, the app watches the file: when you export again from CAD, a yellow banner offers
+**Re-import & solve**. Shift+click **Re-import** does the same.
+
+## Workflow: setups, runs, multi-run, demos
+
+* **Basic / Advanced / Demos** tabs. Basic holds geometry, material, mesh size and press. Advanced holds the stroke
+  increment, robustness controls (auto time-stepping, cutbacks, local refinement, remesh threshold, node budget),
+  nonlinear tolerances and the linear-solver backend, with **Reset to recommended**.
+* **Setups** (`*.ifea.json`, see `RunSettings`): **Save setup… / Open setup…** store every input, including the
+  STEP path (relative when it sits beside the setup) and the chosen top die. They are plain JSON, so they are easy
+  to version, diff or generate.
+* **Run history**: every finished run is listed under RUNS with its own colour. Tick runs to overlay their load and
+  fill curves on the telemetry chart. **Save CSV…** writes the selected run's telemetry (one row per increment:
+  stroke, gap, load, fill, volume change, max stress / strain, mesh size) plus its setup. **Save all…** writes one
+  CSV per run and a `summary.csv`.
+* **Multi-run**: runs the current setup once per value of temperature, friction, ram speed, element size, stroke
+  increment or material. Every run is added to the history and can optionally be saved to a folder with a
+  summary. The original value is restored afterwards, and Abort stops the batch.
+* **Demos**: curated, self-describing examples in `samples/demos/*.json`. Each has a setup, step-by-step
+  instructions shown in the app, and a suggested multi-run. Instructors can add or edit demos without rebuilding
+  (Demos tab → Reload). The six shipped demos cover an upset benchmark, the temperature window, ram speed / strain
+  rate sensitivity, 3D hex-flange fill from CAD, a material comparison including plasticine, and the CAD
+  re-import loop.
+
 ## Physics
 
 * **Formulation**: rigid-viscoplastic flow formulation (Kobayashi–Oh–Altan). Axisymmetric (gear blank, flanged
@@ -92,6 +120,12 @@ runs normally and the Import button explains that STEP support is missing.
 * **Dies** are height fields z = h(x, y) for the presets, or imported triangulated CAD solids (inside test by ray
   parity, closest-point contact on a bucket grid). **Symmetry planes** give half or quarter models; nodal frames from Gram–Schmidt combine
   symmetry and die constraints. Friction is applied as a vector on the tangential axes.
+* **Robustness**: contact placement is quality-aware. Nodes of degenerating tets choose between the closest die
+  point, an exit along the workpiece normal (wraps sharp CAD die edges) and a small temporary corner penetration
+  (0.1·h, relaxed to 0.3·h only while recovering a failing increment). Interior nodes are smoothed for quality.
+  A failing increment goes through a recovery ladder: cutbacks (auto time-stepping keeps the smaller step and
+  grows it back), then a remesh, then local refinement around the failure by conforming longest-edge bisection
+  (LEPP) down to h/2ⁿ. Thin-flash refinement is optional.
 * **Remeshing** uses isosurface stuffing (Labelle & Shewchuk 2007) on a BCC lattice, driven by inside tests on the
   deformed mesh. This guarantees well-shaped tets and keeps symmetry planes exactly flat. State is remapped and the
   volume compensated.
@@ -152,10 +186,19 @@ input deck, stream stdout to `ISimulationObserver.OnLog`, and parse the exported
 ## Limitations
 
 Isothermal (no die chill or heat generation), rigid dies, constant shear friction. Imported models run as full
-models; automatic symmetry detection is not implemented yet. 3D runs take minutes and are
-mesh-size limited (≈12 k nodes). Load and fill are engineering estimates, not certified predictions.
+models; automatic symmetry detection is not implemented yet. 3D runs take from tens of seconds to minutes and
+are limited by the node budget (12 k by default, adjustable under Advanced). Sharp CAD die edges are handled with
+small, bounded corner penetrations; fillets on the dies give cleaner results. Load and fill are engineering estimates, not certified predictions.
 
 ## Headless capture
 
-`ImpressionFEA.App.exe --capture out.png [--solve] [--die N] [--3d] [--analysis3d --die3d N] [--import file.step]` renders the dashboard to
-a PNG (optionally after a full solve) and exits. It's useful as a smoke test.
+`ImpressionFEA.App.exe --capture out.png [--solve] [--die N] [--3d] [--analysis3d --die3d N] [--import file.step
+[--replace-with other.step]] [--demo N [--sweep]] [--tab N]` renders the dashboard to a PNG and exits. It can run
+after a full solve, a demo's multi-run, or a re-import of a changed file, which makes it useful as a smoke test.
+
+## Towards a SolidWorks add-in
+
+The solver library (`ImpressionFEA.Core`) has no UI dependencies, and every job is a `RunSettings` JSON document
+plus a STEP file. A SolidWorks add-in can therefore export the three bodies of each configuration to STEP, write a
+setup per configuration, and call the same engine (`NativeFemEngine.RunAsync`) in process. Results come back as
+`TelemetryRow`s / CSV, exactly as in the desktop app.
