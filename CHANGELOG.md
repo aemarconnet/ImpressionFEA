@@ -3,6 +3,15 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
+## 0.7.0
+- **SOLIDWORKS add-in**: an **ImpressionFEA** CommandManager tab for parts and assemblies with **Simulate**
+  (export the active configuration to STEP and open it in ImpressionFEA), **Send Update** (re-export; settings
+  kept), **All Configurations** (export and solve every configuration as a run) and **Job Folder**. The solver
+  runs out of process in the app; setups are saved per configuration beside the exported STEP files. Release
+  packages include it in `SolidWorks\` with register / unregister scripts.
+- App: single instance; `--job <step|setup>` and `--configs <folder> [--template <setup>]` command lines, forwarded
+  to a running instance.
+
 ## 0.6.1
 - Four-view layout behaves like an engineering drawing: Top, Front and Right share one scale and one centre (Top
   aligned with Front, Front with Right) and are framed on the whole job, so the bottom die stays fixed at the bottom

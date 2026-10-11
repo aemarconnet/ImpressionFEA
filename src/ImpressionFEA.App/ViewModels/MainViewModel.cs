@@ -766,6 +766,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         _scrubIndex = -1;
         ScrubIndex = ScrubMaximum;
         AddRunRecord(result, settings, _clock.Elapsed);
+        SaveJobSetup();
         Tick();
     }
 

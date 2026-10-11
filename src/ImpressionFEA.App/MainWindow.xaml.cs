@@ -326,6 +326,34 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>
+    /// Jobs from CAD (SolidWorks add-in), from this process's command line or forwarded from a second launch:
+    /// --job &lt;file.step | setup.ifea.json&gt; opens one configuration; --configs &lt;folder&gt; [--template &lt;setup&gt;] runs them all.
+    /// </summary>
+    public async Task HandleExternalAsync(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true; // bring to front over SolidWorks
+        Topmost = false;
+        if (Vm.IsRunning || Vm.IsSweeping)
+        {
+            Warn("A simulation is running. Finish or abort it (Esc), then send the job again.", "ImpressionFEA");
+            return;
+        }
+
+        Core.Cad.CadBody? Choose(Core.Cad.ForgingAssembly asm)
+        {
+            var pick = new TopDieDialog(asm) { Owner = this };
+            return pick.ShowDialog() == true ? pick.SelectedTop : null;
+        }
+
+        string? Arg(string name) => Array.IndexOf(args, name) is int i && i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+        if (Arg("--configs") is { } folder) Warn(await Vm.RunConfigurationsAsync(folder, Arg("--template"), Choose), "Configurations");
+        else if (Arg("--job") is { } job) Warn(await Vm.OpenJobAsync(job, Choose), "CAD job");
+    }
+
     /// <summary>Smoke tests: --set Name=Value (repeatable) sets a view-model property (bool, number, enum or text).</summary>
     private static void ApplySetArgs(MainViewModel vm, string[] args)
     {

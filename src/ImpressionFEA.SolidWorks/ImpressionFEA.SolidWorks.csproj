@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SOLIDWORKS add-in (in-process COM, .NET Framework 4.8 as SOLIDWORKS requires). It only exports geometry and hands
+    jobs to ImpressionFEA.App, which runs the solver out of process. Built against the SOLIDWORKS API of the installed
+    SOLIDWORKS (interop types embedded, nothing redistributed); set SolidWorksApiDir if SOLIDWORKS lives elsewhere.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>ImpressionFEA.SolidWorks</RootNamespace>
+    <AssemblyName>ImpressionFEA.SolidWorks</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == ''">C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist\</SolidWorksApiDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksApiDir)SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SolidWorksApiDir)SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swpublished">
+      <HintPath>$(SolidWorksApiDir)SolidWorks.Interop.swpublished.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The logo becomes the add-in's main icon in the CommandManager -->
+    <EmbeddedResource Include="..\..\assets\ImpressionFEA-256.png" LogicalName="ImpressionFEA.png" />
+    <None Include="Register-ImpressionFEA-SolidWorks.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Unregister-ImpressionFEA-SolidWorks.ps1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

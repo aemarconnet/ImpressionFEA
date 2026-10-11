@@ -68,6 +68,7 @@ src/ImpressionFEA.App/             WPF dashboard
   Controls/SolidViewport3D     3D renderer (WPF Viewport3D): revolved/extruded 2D results and true 3D results,
                                banded contour textures, cut-away sections, translucent dies, SolidWorks-style camera
   Controls/NumericField        labelled numeric entry
+src/ImpressionFEA.SolidWorks/       SOLIDWORKS add-in (CommandManager tab, STEP export, launches the app)
 tests/ImpressionFEA.Core.Tests/    analytical benchmarks, numerics, engine error paths, preset runs
 ```
 
@@ -276,9 +277,37 @@ engineering estimates, not certified predictions.
 [--replace-with other.step]] [--demo N [--sweep]] [--tab N]` renders the dashboard to a PNG and exits. It can run
 after a full solve, a demo's multi-run, or a re-import of a changed file, which makes it useful as a smoke test.
 
-## Towards a SolidWorks add-in
+## SolidWorks add-in
 
-The solver library (`ImpressionFEA.Core`) has no UI dependencies, and every job is a `RunSettings` JSON document
-plus a STEP file. A SolidWorks add-in can therefore export the three bodies of each configuration to STEP, write a
-setup per configuration, and call the same engine (`NativeFemEngine.RunAsync`) in process. Results come back as
-`TelemetryRow`s / CSV, exactly as in the desktop app.
+`src/ImpressionFEA.SolidWorks` is a thin SOLIDWORKS add-in (.NET Framework 4.8, x64) that adds an
+**ImpressionFEA** tab to the CommandManager for parts and assemblies. The solver never loads into SOLIDWORKS: the
+add-in exports the model to STEP and hands it to the ImpressionFEA app, which runs out of process (one app instance;
+later jobs are forwarded to it).
+
+| Command | What it does |
+|---|---|
+| **Simulate** | Exports the active configuration to `<configuration>.step` and opens it in ImpressionFEA. The setup (top die, material, settings) is saved beside it as `<configuration>.ifea.json` and reused next time. |
+| **Send Update** | Re-exports after editing; ImpressionFEA re-imports with every setting kept. |
+| **All Configurations** | Exports every configuration and solves each one as a run (using the active configuration's setup as the template), for comparison in the Runs list. Results go to `results\`. |
+| **Job Folder** | Opens `Documents\ImpressionFEA\SolidWorks\<model>` with the STEP files, setups and results. |
+
+Install (release packages include it in `SolidWorks\`):
+
+```
+powershell -ExecutionPolicy Bypass -File SolidWorks\Register-ImpressionFEA-SolidWorks.ps1
+```
+
+The COM class is registered per user; SOLIDWORKS only lists add-ins under `HKLM\SOFTWARE\SolidWorks\AddIns`, so the
+script asks once for administrator permission to write that key. Restart SOLIDWORKS; Tools > Add-Ins toggles the
+add-in. `Unregister-ImpressionFEA-SolidWorks.ps1` removes everything. Load problems are logged to
+`%LOCALAPPDATA%\ImpressionFEA\SolidWorks\addin.log`.
+
+Build from source (needs SOLIDWORKS installed for its API interop assemblies, which are embedded, never shipped):
+
+```
+dotnet build src/ImpressionFEA.SolidWorks -c Release
+powershell -ExecutionPolicy Bypass -File src/ImpressionFEA.SolidWorks/bin/Release/net48/Register-ImpressionFEA-SolidWorks.ps1 -AppPath <path to ImpressionFEA.App.exe>
+```
+
+The app can also be driven directly: `ImpressionFEA.App.exe --job <file.step|setup.ifea.json>` or
+`--configs <folder> [--template <setup.ifea.json>]`.

@@ -51,6 +51,12 @@ function Build-Package([bool]$gpu) {
         if ($l) { Copy-Item $l.FullName (Join-Path $lic "$pkg-license.txt") }
     }
 
+    # SOLIDWORKS add-in (ImpressionFEA CommandManager tab): built when the SOLIDWORKS API is installed on this machine.
+    if ($script:addinDir -and (Test-Path $script:addinDir)) {
+        $sw = New-Item -ItemType Directory -Force (Join-Path $out 'SolidWorks')
+        Copy-Item (Join-Path $script:addinDir 'ImpressionFEA.SolidWorks.dll'), (Join-Path $script:addinDir '*.ps1') $sw
+    }
+
     if (-not $gpu) {
         # Optional GPU solver for the light package: fetch script plus a one-click wrapper.
         $tools = New-Item -ItemType Directory -Force (Join-Path $out 'tools')
@@ -79,7 +85,7 @@ Start:      ImpressionFEA.App.exe   (no installation or .NET runtime needed)
 Try first:  Demos tab -> pick a demo -> Load demo (or Run its multi-run...)
 Your parts: Import STEP... with 3 bodies (bottom die, workpiece, top die) or 2 bodies (dies only; you define the workpiece)
 $solvers
-Videos:     WebM export uses FFmpeg if installed (e.g. winget install BtbN.FFmpeg.LGPL.Shared.9.0); otherwise PNG frames.
+$(if ($script:addinDir) { "SOLIDWORKS: powershell -ExecutionPolicy Bypass -File SolidWorks\Register-ImpressionFEA-SolidWorks.ps1`r`n            (one administrator prompt), restart SOLIDWORKS: an 'ImpressionFEA' CommandManager tab appears.`r`n" })Videos:     WebM export uses FFmpeg if installed (e.g. winget install BtbN.FFmpeg.LGPL.Shared.9.0); otherwise PNG frames.
 Samples:    samples\*.step, samples\demos\*.json (editable demos)
 Licences:   licenses\ (Open CASCADE LGPL-2.1, Intel, NVIDIA, FreeType, FreeImage, TBB, ...)
 "@
@@ -89,6 +95,15 @@ Licences:   licenses\ (Open CASCADE LGPL-2.1, Intel, NVIDIA, FreeType, FreeImage
     $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
     Set-Content -Encoding ASCII "$zip.sha256" "$hash  $name.zip"
     '{0}: {1:N0} MB (unpacked {2:N0} MB), SHA-256 {3}' -f $zip, ((Get-Item $zip).Length / 1MB), ((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), $hash
+}
+
+$script:addinDir = $null
+if (Test-Path 'C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll') {
+    $script:addinDir = Join-Path $artifacts 'solidworks-addin'
+    dotnet build src\ImpressionFEA.SolidWorks\ImpressionFEA.SolidWorks.csproj -c Release -p:DebugType=none -o $script:addinDir
+    if ($LASTEXITCODE -ne 0) { throw "SOLIDWORKS add-in build failed ($LASTEXITCODE)." }
+} else {
+    'SOLIDWORKS API not found: packages are built without the SOLIDWORKS add-in.'
 }
 
 if ($Flavor -in 'both', 'light') { Build-Package $false }
