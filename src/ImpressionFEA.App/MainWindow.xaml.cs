@@ -133,6 +133,25 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>RUNS right-click → Delete run: removes that run (the one under the mouse, not necessarily the selected one).</summary>
+    private void DeleteRun_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is RunRecord run) DeleteRun(run);
+    }
+
+    /// <summary>Del in RUNS deletes the selected run.</summary>
+    private void Runs_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete || Vm.SelectedRun is not { } run) return;
+        DeleteRun(run);
+        e.Handled = true;
+    }
+
+    private void DeleteRun(RunRecord run)
+    {
+        if (!Vm.DeleteRun(run)) Warn("Runs can't be deleted while a simulation, multi-run or export is in progress.", "Delete run");
+    }
+
     private void SaveTelemetry_Click(object sender, RoutedEventArgs e)
     {
         var run = Vm.SelectedRun ?? Vm.Runs.FirstOrDefault();

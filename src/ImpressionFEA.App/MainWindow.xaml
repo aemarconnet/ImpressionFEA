@@ -522,10 +522,17 @@
                                    Margin="0,3,0,0" Visibility="{Binding IsSweeping, Converter={StaticResource BoolToVis}}" />
                         <Grid>
                             <ListBox ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRun}" Margin="0,4,0,0" BorderBrush="{StaticResource PanelBorder}"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
+                                     KeyDown="Runs_KeyDown">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <DockPanel ToolTip="{Binding Tip}" Background="Transparent">
+                                            <DockPanel.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Delete run" InputGestureText="Del" Click="DeleteRun_Click"
+                                                              ToolTip="Remove this run's telemetry, chart overlay and results" />
+                                                </ContextMenu>
+                                            </DockPanel.ContextMenu>
                                             <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsShown}" VerticalAlignment="Center" ToolTip="Overlay on the chart" />
                                             <Rectangle DockPanel.Dock="Left" Width="12" Height="3" Fill="{Binding Swatch}" Margin="2,0,6,0" VerticalAlignment="Center" />
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" FontFamily="{StaticResource Mono}" FontSize="10.5" Margin="6,0,0,0"

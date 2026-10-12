@@ -511,6 +511,45 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(HasRuns));
     }, () => !IsRunning && Runs.Count > 0);
 
+    /// <summary>
+    /// Removes one run (its telemetry, chart overlay and stored results) from RUNS. When it is the run in the viewport,
+    /// the viewport falls back to the next run with stored results, else to the setup preview. Not while solving.
+    /// </summary>
+    public bool DeleteRun(RunRecord run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        if (IsRunning || IsSweeping || IsExporting || !Runs.Contains(run)) return false;
+        int index = Runs.IndexOf(run);
+        bool wasShown = run == _shown || run == CurrentRun;
+        Runs.Remove(run);
+        if (wasShown)
+        {
+            _shown = null;
+            CurrentRun = null;
+            var next = Runs.Skip(index).Concat(Runs.Take(index)).FirstOrDefault(r => r.CanShow);
+            if (next is not null)
+            {
+                SelectedRun = next;
+            }
+            else
+            {
+                SelectedRun = null;
+                ResetResults();
+                State = RunState.Idle;
+                BuildPreview();
+            }
+        }
+        else if (run == _selectedRun)
+        {
+            SelectedRun = null;
+        }
+
+        SyncOverlays();
+        OnPropertyChanged(nameof(HasRuns));
+        StatusText = $"Deleted run {run.Label}.";
+        return true;
+    }
+
     public ICommand ShowAllRunsCommand => new RelayCommand(() =>
     {
         bool any = Runs.Any(r => !r.IsShown);
