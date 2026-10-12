@@ -11,7 +11,7 @@
     <Authors>Marconnet Technologies LLC</Authors>
     <Copyright>© 2026 Marconnet Technologies LLC. Licensed under CC BY-NC 4.0.</Copyright>
     <!-- Release number: bump on every release and add an entry to CHANGELOG.md. Shown in the app title bar. -->
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <!-- Build stamp appended to the informational version (e.g. 0.4.0+20261011.0215) so each build is identifiable. -->
     <SourceRevisionId>$([System.DateTime]::Now.ToString("yyyyMMdd.HHmm"))</SourceRevisionId>
   </PropertyGroup>
