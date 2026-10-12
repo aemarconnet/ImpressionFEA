@@ -148,6 +148,43 @@ public class SolverVerificationTests(ITestOutputHelper output)
         Assert.True(last.FillPercent > 90, $"fill {last.FillPercent:F1} %");
     }
 
+    [Theory]
+    [Trait("Category", "Slow")]
+    [InlineData(10.0)]
+    [InlineData(50.0)]
+    [InlineData(1000.0)]
+    public void Demo3FlangedShaftAluminiumForgesAtEveryRamSpeed(double ramSpeed)
+    {
+        // Demo 3 (ram speed sweep): 6061 at 450 °C in the flanged shaft, billet as wide as the shank pocket.
+        var die = DiePresets.All.Single(d => d.Name == "Flanged shaft");
+        var cfg = new SimulationConfig
+        {
+            Die = die,
+            Material = MaterialPresets.Al6061,
+            Temperature = 450,
+            BilletRadius = die.RecommendedBilletRadius,
+            BilletHeight = die.RecommendedHeight(die.RecommendedBilletRadius, die.RecommendedLength),
+            BilletLength = die.RecommendedLength,
+            FrictionFactor = 0.3,
+            ElementSize = 1.25, // as in the demo setup
+            StrokeIncrement = die.RecommendedStrokeIncrement,
+            RamSpeed = ramSpeed,
+        };
+        var log = new List<string>();
+        var solver = new ForgingSolver(cfg, log.Add);
+        StepSnapshot last = solver.InitialSnapshot();
+        try
+        {
+            while (!solver.IsFinished) last = solver.Advance(CancellationToken.None);
+        }
+        finally
+        {
+            foreach (var l in log.Where(l => !l.StartsWith("    it", StringComparison.Ordinal))) output.WriteLine(l);
+        }
+
+        Assert.True(last.FillPercent > 90, $"fill {last.FillPercent:F1} %");
+    }
+
     public static TheoryData<string> PresetNames()
     {
         var data = new TheoryData<string>();

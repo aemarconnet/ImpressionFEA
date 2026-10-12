@@ -16,6 +16,7 @@
     "temperature": 450,
     "friction": 0.3,
     "ramSpeed": 50,
+    "elementSize": 1.25,
     "pressCapacity": 500
   },
   "sweep": { "parameter": "RamSpeed", "values": [ "10", "50", "250", "1000" ] }

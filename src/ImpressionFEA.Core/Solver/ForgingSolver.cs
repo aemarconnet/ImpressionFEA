@@ -229,7 +229,14 @@ public sealed class ForgingSolver : IForgingStepper
         {
             PrepareConstraints();
             LoadVelocityGuess();
-            iterations = SolveVelocity(ct, out bool converged);
+            iterations = SolveVelocity(ct, out bool converged, picardFallback: false);
+            if (!converged && _lastRel >= 1e-3)
+            {
+                _log(F($"  step {StepIndex}: Newton stalled (|Δv|/|v| = {_lastRel:E2}); retrying with Picard fallback."));
+                LoadVelocityGuess();
+                iterations += SolveVelocity(ct, out converged, picardFallback: true);
+            }
+
             if (!converged)
             {
                 if (_lastRel < 1e-3)
@@ -379,15 +386,21 @@ public sealed class ForgingSolver : IForgingStepper
 
     // ------------------------------------------------------------------ nonlinear velocity solve
 
-    private int SolveVelocity(CancellationToken ct, out bool converged)
+    /// <param name="picardFallback">
+    /// Retry mode: when Newton keeps needing damped steps (stick–slip friction or near-rigid zones make the tangent a
+    /// poor guide, e.g. a long bar touching the dies at a few points), drop back to a few robust Picard iterations and
+    /// retry Newton from there.
+    /// </param>
+    private int SolveVelocity(CancellationToken ct, out bool converged, bool picardFallback)
     {
         converged = false;
         _lastRel = double.PositiveInfinity;
         int it;
+        int damped = 0, picardUntil = 2;
         for (it = 1; it <= _cfg.MaxIterations; it++)
         {
             ct.ThrowIfCancellationRequested();
-            bool newton = it > 2;
+            bool newton = it > picardUntil; // Picard first, then Newton
             double e0 = Assemble(true, newton, _v, out _);
             for (int d = 0; d < _ndof; d++)
             {
@@ -425,6 +438,13 @@ public sealed class ForgingSolver : IForgingStepper
             {
                 converged = true;
                 return it;
+            }
+
+            damped = newton && beta < 0.5 ? damped + 1 : 0;
+            if (picardFallback && damped >= 3)
+            {
+                picardUntil = it + 4;
+                damped = 0;
             }
         }
 

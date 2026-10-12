@@ -12,6 +12,8 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 - 3D remeshing near closure: flat or inverted surface tets in pinched thin sections are untangled (surface nodes
   moved off the die to better positions), and a new mesh is accepted whenever it is clearly better than the one in
   use. Die-only jobs that stalled at ~92 % stroke with "tetrahedron collapsed" now run to closure.
+- Demo 3 (ram speed) fixed: the 2D solver now retries a stalled Newton solve with Picard fallback (it diverged at
+  step 1 for 6061 in the flanged shaft), and the demo uses a 1.25 mm mesh; every speed forges to 100 % fill.
 - RUNS: right-click a run → **Delete run** (or select it and press Del) removes its telemetry, chart overlay and
   results; the view moves to the next stored run, or back to the setup preview.
 - App: single instance; `--job <step|setup>` and `--configs <folder> [--template <setup>]` command lines, forwarded
