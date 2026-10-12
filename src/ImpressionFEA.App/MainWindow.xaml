@@ -280,6 +280,9 @@
                         <TextBlock DockPanel.Dock="Left" Text="RESULTS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Muted}"
                                    VerticalAlignment="Center" Margin="0,0,12,0" />
                         <ComboBox DockPanel.Dock="Left" Width="230" ItemsSource="{Binding Fields}" SelectedItem="{Binding SelectedField}" />
+                        <ComboBox DockPanel.Dock="Left" Width="78" Margin="6,0,0,0" ItemsSource="{Binding AveragingOptions}" SelectedItem="{Binding Averaging}"
+                                  Visibility="{Binding IsGrainFlow, Converter={StaticResource NotBoolToVis}}"
+                                  ToolTip="Nodal: element values averaged to the nodes (smooth contours). Element: each element in one flat colour from its own value (no averaging; shows jumps between elements)." />
                         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="12,0,0,0">
                             <RadioButton Content="2D section" IsChecked="{Binding Is2D}" GroupName="ViewMode" VerticalAlignment="Center"
                                          IsEnabled="{Binding Analysis2D}" />
@@ -411,10 +414,10 @@
                     <c:FieldViewport x:Name="View2D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}"
                                      Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                      RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
-                                     ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}" ShowVelocity="{Binding ShowVelocity}" Units="{Binding SelectedUnits}" FlowLines="{Binding DisplayFlowLines}"
+                                     ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}" ShowVelocity="{Binding ShowVelocity}" Units="{Binding SelectedUnits}" FlowLines="{Binding DisplayFlowLines}" Averaging="{Binding Averaging}"
                                      ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}" ClipLow="{Binding ClipLow}" ClipHigh="{Binding ClipHigh}"
                                      ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}" />
-                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" ShowDieEdges="{Binding ShowDieEdges}" GrainFlow="{Binding IsGrainFlow}" FlowLines="{Binding DisplayFlowLines}" FlowField="{Binding DisplayFlowField3D}" FlowFiber="{Binding ResolvedFiber}" FlowLineCount="{Binding FlowLineCount}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
+                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" ShowDieEdges="{Binding ShowDieEdges}" Averaging="{Binding Averaging}" GrainFlow="{Binding IsGrainFlow}" FlowLines="{Binding DisplayFlowLines}" FlowField="{Binding DisplayFlowField3D}" FlowFiber="{Binding ResolvedFiber}" FlowLineCount="{Binding FlowLineCount}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
                                        PartVisible="{Binding PartVisible}" PartOpacity="{Binding PartOpacity}" BottomDieVisible="{Binding BottomDieVisible}"
                                        TopDieVisible="{Binding TopDieVisible}" BottomDieOpacity="{Binding BottomDieOpacity}" TopDieOpacity="{Binding TopDieOpacity}" QuadView="{Binding QuadView}" CutAxis="{Binding CutAxis}" CutFlip="{Binding CutFlip}"
                                        CutOffset="{Binding CutOffset}" ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}"

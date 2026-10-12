@@ -3,6 +3,12 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
+## Unreleased
+- **Nodal / Element** colouring toggle next to the results list (as in SOLIDWORKS Simulation): Nodal averages the
+  element values to the nodes (smooth contours); Element paints every element in one flat colour from its own value,
+  showing the jumps between elements. 2D section, 3D results and 2D results in the 3D view; applies to images and
+  videos.
+
 ## 0.8.0
 - **Grain flow** result (results list, next to stress and strain), like an etched macro-section: fibre following the
   contour, laps (lines folding over) and fibre running out through the flash. Fibre direction (Auto / vertical /

@@ -5,9 +5,29 @@ using ImpressionFEA.Core.Simulation;
 
 namespace ImpressionFEA.App.Controls;
 
+/// <summary>How element results are coloured (as the SOLIDWORKS Simulation option of the same name).</summary>
+public enum FieldAveraging
+{
+    /// <summary>Element values averaged to the nodes and blended across elements (smooth contours).</summary>
+    Nodal,
+
+    /// <summary>Each element in one flat colour from its own value (no averaging; shows jumps between elements).</summary>
+    Element,
+}
+
 /// <summary>Banded contour palette and field helpers shared by the 2D section and 3D solid viewports.</summary>
 public static class ContourPalette
 {
+    /// <summary>Element values mapped to [0, 1] of the colour range (clamped just inside, for texture lookup).</summary>
+    public static double[] ElementFraction(ForgingSnapshot s, ResultField field, double lo, double hi)
+    {
+        var vals = s.Field(field);
+        double inv = hi > lo ? 1.0 / (hi - lo) : 0;
+        var t = new double[vals.Length];
+        for (int e = 0; e < vals.Length; e++) t[e] = Math.Clamp((vals[e] - lo) * inv, 0.001, 0.999);
+        return t;
+    }
+
     public const int Bands = 12;
 
     /// <summary>Opaque Pbgra32 colours, low → high.</summary>

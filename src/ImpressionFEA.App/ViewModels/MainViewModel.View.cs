@@ -191,6 +191,15 @@ public sealed partial class MainViewModel
         }
     }
 
+    // ---------------------------------------------------------------- element vs nodal colours
+
+    private FieldAveraging _averaging = FieldAveraging.Nodal;
+
+    public IReadOnlyList<FieldAveraging> AveragingOptions { get; } = Enum.GetValues<FieldAveraging>();
+
+    /// <summary>Contour colours from nodal averages (smooth) or each element's own value (flat per element).</summary>
+    public FieldAveraging Averaging { get => _averaging; set => Set(ref _averaging, value); }
+
     // ---------------------------------------------------------------- die edges (3D view)
 
     private bool _showDieEdges;
@@ -216,6 +225,7 @@ public sealed partial class MainViewModel
         Lighting = ViewLighting.Shaded;
         ShowEdges = ShowContact = ShowVelocity = ShowDieEdges = false;
         FlowFiber = FiberDirection.Auto;
+        Averaging = FieldAveraging.Nodal;
         FlowLineCount = 16;
     });
 

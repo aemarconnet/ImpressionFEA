@@ -28,6 +28,10 @@ public sealed class FieldViewport : FrameworkElement
     public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false);
     public static readonly DependencyProperty ArrowSpacingProperty = Reg(nameof(ArrowSpacing), typeof(double), 1.6);
     public static readonly DependencyProperty FlowLinesProperty = Reg(nameof(FlowLines), typeof(IReadOnlyList<Vec2[]>), null);
+    public static readonly DependencyProperty AveragingProperty = Reg(nameof(Averaging), typeof(FieldAveraging), FieldAveraging.Nodal);
+
+    /// <summary>Contour colours from nodal averages (smooth) or each element's own value (flat per element).</summary>
+    public FieldAveraging Averaging { get => (FieldAveraging)GetValue(AveragingProperty); set => SetValue(AveragingProperty, value); }
 
     /// <summary>Grain flow lines of the shown increment (right half, mm); null = none.</summary>
     public IReadOnlyList<Vec2[]>? FlowLines { get => (IReadOnlyList<Vec2[]>?)GetValue(FlowLinesProperty); set => SetValue(FlowLinesProperty, value); }
@@ -261,6 +265,7 @@ public sealed class FieldViewport : FrameworkElement
             var nodal = ContourPalette.NodalField(s, Field);
             double lo = RangeMin, hi = RangeMax;
             double inv = hi > lo ? 1.0 / (hi - lo) : 0;
+            var elem = Averaging == FieldAveraging.Element ? ContourPalette.ElementFraction(s, Field, lo, hi) : null;
             double sx = dpi.DpiScaleX, sy = dpi.DpiScaleY;
             var visible = ClipFilter(s);
             foreach (double mirror in Mirror ? new[] { 1.0, -1.0 } : [1.0])
@@ -273,6 +278,15 @@ public sealed class FieldViewport : FrameworkElement
                     var pb = P(mirror * s.X[b], s.Y[b]);
                     var pc = P(mirror * s.X[c], s.Y[c]);
                     var pd = P(mirror * s.X[d], s.Y[d]);
+                    if (elem is not null)
+                    {
+                        // Element mode: one flat colour per quad from its own value.
+                        double te = elem[e];
+                        Raster(pw, ph, pa.X * sx, pa.Y * sy, te, pb.X * sx, pb.Y * sy, te, pc.X * sx, pc.Y * sy, te);
+                        Raster(pw, ph, pa.X * sx, pa.Y * sy, te, pc.X * sx, pc.Y * sy, te, pd.X * sx, pd.Y * sy, te);
+                        continue;
+                    }
+
                     Raster(pw, ph, pa.X * sx, pa.Y * sy, (nodal[a] - lo) * inv, pb.X * sx, pb.Y * sy, (nodal[b] - lo) * inv, pc.X * sx, pc.Y * sy, (nodal[c] - lo) * inv);
                     Raster(pw, ph, pa.X * sx, pa.Y * sy, (nodal[a] - lo) * inv, pc.X * sx, pc.Y * sy, (nodal[c] - lo) * inv, pd.X * sx, pd.Y * sy, (nodal[d] - lo) * inv);
                 }

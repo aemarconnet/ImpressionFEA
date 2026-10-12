@@ -32,6 +32,10 @@ public sealed partial class SolidViewport3D : Grid
     public static readonly DependencyProperty ShowEdgesProperty = Reg(nameof(ShowEdges), typeof(bool), false, false);
     public static readonly DependencyProperty ShowDieEdgesProperty = Reg(nameof(ShowDieEdges), typeof(bool), false, false);
     public static readonly DependencyProperty GrainFlowProperty = Reg(nameof(GrainFlow), typeof(bool), false, false);
+    public static readonly DependencyProperty AveragingProperty = Reg(nameof(Averaging), typeof(FieldAveraging), FieldAveraging.Nodal, false);
+
+    /// <summary>Contour colours from nodal averages (smooth) or each element's own value (flat per element).</summary>
+    public FieldAveraging Averaging { get => (FieldAveraging)GetValue(AveragingProperty); set => SetValue(AveragingProperty, value); }
     public static readonly DependencyProperty FlowLinesProperty = Reg(nameof(FlowLines), typeof(IReadOnlyList<Vec2[]>), null, false);
     public static readonly DependencyProperty FlowFieldProperty = Reg(nameof(FlowField), typeof(GrainReference3D), null, false);
     public static readonly DependencyProperty FlowFiberProperty = Reg(nameof(FlowFiber), typeof(FiberDirection), FiberDirection.Vertical, false);
@@ -729,8 +733,9 @@ public sealed partial class SolidViewport3D : Grid
             var mesh = new MeshGeometry3D();
             bool field = ShowField;
             double[] t = field ? Normalised(snap) : new double[snap.Mesh.NodeCount];
-            if (plane) BuildExtrudedPart(mesh, snap, t, PartLength);
-            else BuildRevolvedPart(mesh, snap, t, a0, a1, segs, cut);
+            var te = field && Averaging == FieldAveraging.Element ? ContourPalette.ElementFraction(snap, Field, RangeMin, RangeMax) : null;
+            if (plane) BuildExtrudedPart(mesh, snap, t, PartLength, te);
+            else BuildRevolvedPart(mesh, snap, t, a0, a1, segs, cut, te);
             mesh.Freeze();
             var m = new GeometryModel3D(mesh, field ? _fieldMaterial : _plainMaterial) { BackMaterial = field ? _fieldMaterial : _plainMaterial };
             m.Freeze();
@@ -907,7 +912,8 @@ public sealed partial class SolidViewport3D : Grid
 
                 // Grain flow on a section: the part is cut exactly on the plane (flat cap) and the fibre lines are drawn on it.
                 bool grainCut = GrainFlow && CutAway && !arrows;
-                var g = grainCut ? BuildPartFlatCut(s, copies, KeepPlane()) : BuildPart(s, t, copies, keep, visible);
+                var te = field && !arrows && Averaging == FieldAveraging.Element ? ContourPalette.ElementFraction(s, Field, RangeMin, RangeMax) : null;
+                var g = grainCut ? BuildPartFlatCut(s, copies, KeepPlane()) : BuildPart(s, t, copies, keep, visible, te);
                 double opacity = arrows ? Math.Min(PartOpacity, 0.25) : PartOpacity;
                 var baseMat = arrows ? _ghostMaterial : field ? _fieldMaterial : _plainMaterial;
                 var mat = arrows ? baseMat : Translucent(baseMat, opacity);
@@ -1023,9 +1029,10 @@ public sealed partial class SolidViewport3D : Grid
     /// <summary>
     /// Visible surface of the full part: every symmetry copy of the modelled tets, clipped by the cut-away plane.
     /// Outer faces get smooth normals and the contour values; faces exposed by the cut (or a symmetry plane whose
-    /// mirror tet was cut away) are flat sections. Mirrored copies reverse the winding.
+    /// mirror tet was cut away) are flat sections. Mirrored copies reverse the winding. With <paramref name="te"/> (element
+    /// mode) every face takes its tet's value instead of the nodal ones.
     /// </summary>
-    private static MeshGeometry3D BuildPart(Snapshot3D s, double[] t, (int Sx, int Sy)[] copies, Func<double, double, bool> keep, Func<int, bool>? visible = null)
+    private static MeshGeometry3D BuildPart(Snapshot3D s, double[] t, (int Sx, int Sy)[] copies, Func<double, double, bool> keep, Func<int, bool>? visible = null, double[]? te = null)
     {
         var mesh = s.Mesh;
         var tets = mesh.Tets;
@@ -1100,7 +1107,7 @@ public sealed partial class SolidViewport3D : Grid
                         var v = flat ?? MapN(sx * nrm[n].X, sy * nrm[n].Y, nrm[n].Z);
                         if (v.Length > 0) v.Normalize();
                         g.Normals.Add(v);
-                        g.TextureCoordinates.Add(new Point(t[n], 0.5));
+                        g.TextureCoordinates.Add(new Point(te?[e] ?? t[n], 0.5));
                     }
 
                     int i0 = g.Positions.Count - 3;
@@ -1530,9 +1537,11 @@ public sealed partial class SolidViewport3D : Grid
         return nodal;
     }
 
-    private static void BuildRevolvedPart(MeshGeometry3D mesh, StepSnapshot s, double[] t, double a0, double a1, int segs, bool caps)
+    /// <param name="te">Element mode: per-element colour fractions (outline segments take their owning element's value).</param>
+    private static void BuildRevolvedPart(MeshGeometry3D mesh, StepSnapshot s, double[] t, double a0, double a1, int segs, bool caps, double[]? te = null)
     {
         var loop = s.Mesh.BoundaryLoop;
+        var owner = s.Mesh.BoundaryEdgeOwner;
         int m = loop.Length;
         var p2 = loop.Select(n => new Point(s.X[n], s.Y[n])).ToArray();
         var tv = loop.Select(n => t[n]).ToArray();
@@ -1543,36 +1552,23 @@ public sealed partial class SolidViewport3D : Grid
             if (p2[k].X < 1e-9 && p2[k1].X < 1e-9) continue; // edge on the axis
             var na = VertexNormal(nrm, k, m);
             var nb = VertexNormal(nrm, k1, m, start: false);
-            Revolve(mesh, p2[k], p2[k1], na, nb, tv[k], tv[k1], a0, a1, segs);
+            Revolve(mesh, p2[k], p2[k1], na, nb, te?[owner[k]] ?? tv[k], te?[owner[k]] ?? tv[k1], a0, a1, segs);
         }
 
         if (!caps) return;
-        var conn = s.Mesh.Connectivity;
         foreach (double ang in new[] { a0, a1 })
         {
             double c = Math.Cos(ang), sn = Math.Sin(ang);
-            var normal = ang == a0 ? new Vector3D(sn, 0, -c) : new Vector3D(-sn, 0, c);
-            int baseIdx = mesh.Positions.Count;
-            for (int n = 0; n < s.Mesh.NodeCount; n++)
-            {
-                mesh.Positions.Add(new Point3D(s.X[n] * c, s.Y[n], s.X[n] * sn));
-                mesh.Normals.Add(normal);
-                mesh.TextureCoordinates.Add(new Point(t[n], 0.5));
-            }
-
-            for (int e = 0; e < s.Mesh.ElementCount; e++)
-            {
-                int i0 = baseIdx + conn[4 * e], i1 = baseIdx + conn[4 * e + 1], i2 = baseIdx + conn[4 * e + 2], i3 = baseIdx + conn[4 * e + 3];
-                AddTri(mesh, i0, i1, i2);
-                AddTri(mesh, i0, i2, i3);
-            }
+            AddSectionFace(mesh, s, t, te, (x, y) => new Point3D(x * c, y, x * sn), ang == a0 ? new Vector3D(sn, 0, -c) : new Vector3D(-sn, 0, c));
         }
     }
 
-    private static void BuildExtrudedPart(MeshGeometry3D mesh, StepSnapshot s, double[] t, double length)
+    /// <param name="te">Element mode: per-element colour fractions (outline segments take their owning element's value).</param>
+    private static void BuildExtrudedPart(MeshGeometry3D mesh, StepSnapshot s, double[] t, double length, double[]? te = null)
     {
         double z0 = -length / 2, z1 = length / 2;
         var loop = s.Mesh.BoundaryLoop;
+        var owner = s.Mesh.BoundaryEdgeOwner;
         int m = loop.Length;
         foreach (double mir in new[] { 1.0, -1.0 })
         {
@@ -1585,28 +1581,57 @@ public sealed partial class SolidViewport3D : Grid
                 var na = VertexNormal(nrm, k, m);
                 var nb = VertexNormal(nrm, k1, m, start: false);
                 if (mir < 0) { na = -na; nb = -nb; }
-                Extrude(mesh, p2[k], p2[k1], na, nb, t[loop[k]], t[loop[k1]], z0, z1);
+                Extrude(mesh, p2[k], p2[k1], na, nb, te?[owner[k]] ?? t[loop[k]], te?[owner[k]] ?? t[loop[k1]], z0, z1);
             }
 
-            var conn = s.Mesh.Connectivity;
             foreach (double z in new[] { z0, z1 })
             {
-                var normal = new Vector3D(0, 0, Math.Sign(z));
-                int baseIdx = mesh.Positions.Count;
-                for (int n = 0; n < s.Mesh.NodeCount; n++)
-                {
-                    mesh.Positions.Add(new Point3D(mir * s.X[n], s.Y[n], z));
-                    mesh.Normals.Add(normal);
-                    mesh.TextureCoordinates.Add(new Point(t[n], 0.5));
-                }
-
-                for (int e = 0; e < s.Mesh.ElementCount; e++)
-                {
-                    int i0 = baseIdx + conn[4 * e], i1 = baseIdx + conn[4 * e + 1], i2 = baseIdx + conn[4 * e + 2], i3 = baseIdx + conn[4 * e + 3];
-                    AddTri(mesh, i0, i1, i2);
-                    AddTri(mesh, i0, i2, i3);
-                }
+                double mz = mir;
+                AddSectionFace(mesh, s, t, te, (x, y) => new Point3D(mz * x, y, z), new Vector3D(0, 0, Math.Sign(z)));
             }
+        }
+    }
+
+    /// <summary>
+    /// The 2D section (every quad as two triangles) placed in 3D by <paramref name="place"/>: shared nodal vertices, or
+    /// with <paramref name="te"/> four vertices per element carrying its own value (flat element colours).
+    /// </summary>
+    private static void AddSectionFace(MeshGeometry3D mesh, StepSnapshot s, double[] t, double[]? te, Func<double, double, Point3D> place, Vector3D normal)
+    {
+        var conn = s.Mesh.Connectivity;
+        int baseIdx = mesh.Positions.Count;
+        if (te is null)
+        {
+            for (int n = 0; n < s.Mesh.NodeCount; n++)
+            {
+                mesh.Positions.Add(place(s.X[n], s.Y[n]));
+                mesh.Normals.Add(normal);
+                mesh.TextureCoordinates.Add(new Point(t[n], 0.5));
+            }
+
+            for (int e = 0; e < s.Mesh.ElementCount; e++)
+            {
+                int i0 = baseIdx + conn[4 * e], i1 = baseIdx + conn[4 * e + 1], i2 = baseIdx + conn[4 * e + 2], i3 = baseIdx + conn[4 * e + 3];
+                AddTri(mesh, i0, i1, i2);
+                AddTri(mesh, i0, i2, i3);
+            }
+
+            return;
+        }
+
+        for (int e = 0; e < s.Mesh.ElementCount; e++)
+        {
+            int i0 = mesh.Positions.Count;
+            for (int a = 0; a < 4; a++)
+            {
+                int n = conn[4 * e + a];
+                mesh.Positions.Add(place(s.X[n], s.Y[n]));
+                mesh.Normals.Add(normal);
+                mesh.TextureCoordinates.Add(new Point(te[e], 0.5));
+            }
+
+            AddTri(mesh, i0, i0 + 1, i0 + 2);
+            AddTri(mesh, i0, i0 + 2, i0 + 3);
         }
     }
 
