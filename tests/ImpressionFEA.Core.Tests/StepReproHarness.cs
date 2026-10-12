@@ -35,4 +35,36 @@ public class StepReproHarness(ITestOutputHelper output)
         catch (SimulationException ex) { output.WriteLine("FAILED: " + ex.Message); }
         output.WriteLine($"final stroke {s.Stroke:F2} / {solver.TotalStroke:F2}");
     }
+
+    [Fact]
+    [Trait("Category", "Scratch")]
+    public void RunSetupToClosure()
+    {
+        // Developer harness: set REPRO_SETUP to an *.ifea.json (3D, STEP-based, e.g. a SolidWorks job) to run it to
+        // closure exactly as set up, with the full solver log.
+        var path = Environment.GetEnvironmentVariable("REPRO_SETUP");
+        if (string.IsNullOrEmpty(path)) return;
+        var s0 = RunSettings.Load(path);
+        string step = Path.IsPathRooted(s0.StepFile!) ? s0.StepFile! : Path.Combine(Path.GetDirectoryName(path)!, s0.StepFile!);
+        var asm = ForgingAssembly.Classify(Path.GetFileName(step), StepImporter.Read(step));
+        var top = s0.TopDieBody is int tb ? asm.Bodies.First(b => b.Index + 1 == tb) : asm.SuggestedTop;
+        var die = asm.BuildDieSet(top, output.WriteLine, asm.IsDieOnly ? s0.Workpiece ?? new UserBillet() : null);
+        die.CavityVolume();
+        die.Place(0, 0);
+        var mat = MaterialPresets.All.First(m => m.Name == s0.Material);
+        var cfg = new SimulationConfig3D
+        {
+            Die = die, Material = mat, Temperature = s0.Temperature, FrictionFactor = s0.Friction,
+            ElementSize = s0.ElementSize, StrokeIncrement = s0.StrokeIncrement, RamSpeed = s0.RamSpeed,
+            AutoStep = s0.AutoStep, MaxCutbacks = s0.MaxCutbacks, RefinementLevels = s0.RefinementLevels,
+            RefineThinFlash = s0.RefineThinFlash, RemeshQuality = s0.RemeshQuality, MaxNodeCount = s0.MaxNodeCount,
+            MaxIterations = s0.MaxIterations, Tolerance = s0.Tolerance,
+        };
+        output.WriteLine(string.Join("\n", cfg.Validate()));
+        using var solver = new Forging3DSolver(cfg, l => { if (!l.StartsWith("    it")) output.WriteLine(l); });
+        ForgingSnapshot s = solver.Initial();
+        try { while (!solver.IsFinished) s = solver.Step(CancellationToken.None); }
+        catch (SimulationException ex) { output.WriteLine("FAILED: " + ex.Message); }
+        output.WriteLine($"final stroke {s.Stroke:F2} / {solver.TotalStroke:F2}");
+    }
 }

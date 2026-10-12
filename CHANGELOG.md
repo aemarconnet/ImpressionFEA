@@ -9,6 +9,9 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
   kept), **All Configurations** (export and solve every configuration as a run) and **Job Folder**. The solver
   runs out of process in the app; setups are saved per configuration beside the exported STEP files. Release
   packages include it in `SolidWorks\` with register / unregister scripts.
+- 3D remeshing near closure: flat or inverted surface tets in pinched thin sections are untangled (surface nodes
+  moved off the die to better positions), and a new mesh is accepted whenever it is clearly better than the one in
+  use. Die-only jobs that stalled at ~92 % stroke with "tetrahedron collapsed" now run to closure.
 - App: single instance; `--job <step|setup>` and `--configs <folder> [--template <setup>]` command lines, forwarded
   to a running instance.
 

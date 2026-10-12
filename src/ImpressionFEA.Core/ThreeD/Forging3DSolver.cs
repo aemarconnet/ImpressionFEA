@@ -1373,6 +1373,84 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     }
 
     /// <summary>
+    /// Untangles flat or inverted tets that touch the surface after a remesh (thin, pinched sections at closure, where
+    /// every node of a bad tet lies on a die and the stuffed positions are inside it). Each surface node of a tet below
+    /// <paramref name="qTarget"/> tries its stuffed position, the centroid of its neighbours and blends towards them,
+    /// keeping the candidate that most raises the worst quality of its tets without entering a die. A node moved off
+    /// a die is released (Free); contact picks it up again in the next increment. Returns the number of node moves.
+    /// </summary>
+    private int UntangleSurface(TetMesh mesh, Vec3[] x, NodeContact[] contact, Vec3[] stuffed, double qTarget, int sweeps)
+    {
+        var t = mesh.Tets;
+        int moves = 0;
+        var bad = new bool[mesh.NodeCount];
+        for (int s = 0; s < sweeps; s++)
+        {
+            Array.Clear(bad);
+            bool any = false;
+            for (int e = 0; e < mesh.ElementCount; e++)
+            {
+                if (TetMesh.Quality(x[t[4 * e]], x[t[4 * e + 1]], x[t[4 * e + 2]], x[t[4 * e + 3]]) >= qTarget) continue;
+                for (int a = 0; a < 4; a++) bad[t[4 * e + a]] = true;
+                any = true;
+            }
+
+            if (!any) break;
+            int sweepMoves = 0;
+            for (int n = 0; n < mesh.NodeCount; n++)
+            {
+                if (!bad[n] || !mesh.IsSurfaceNode[n]) continue;
+                Vec3 sum = default;
+                int cnt = 0;
+                foreach (int e in mesh.TetsOf(n))
+                {
+                    for (int a = 0; a < 4; a++)
+                    {
+                        int m = t[4 * e + a];
+                        if (m == n) continue;
+                        sum += x[m];
+                        cnt++;
+                    }
+                }
+
+                if (cnt == 0) continue;
+                var old = x[n];
+                double worst = WorstAround(mesh, x, n);
+                var centroid = (1.0 / cnt) * sum;
+                Vec3 best = old;
+                double bestQ = worst;
+                foreach (var target in (ReadOnlySpan<Vec3>)[stuffed[n], centroid])
+                {
+                    foreach (double lambda in (ReadOnlySpan<double>)[1.0, 0.5, 0.25])
+                    {
+                        var p = SymOn(mesh, old + lambda * (target - old), n);
+                        if (Math.Min(_die.Bottom.Clearance(p, 0), _die.TopClosed.Clearance(p, _gap)) < 0) continue;
+                        x[n] = p;
+                        double q = WorstAround(mesh, x, n);
+                        if (q > bestQ + 1e-6)
+                        {
+                            best = p;
+                            bestQ = q;
+                        }
+                    }
+                }
+
+                x[n] = best;
+                if (best != old)
+                {
+                    contact[n] = NodeContact.Free;
+                    sweepMoves++;
+                }
+            }
+
+            moves += sweepMoves;
+            if (sweepMoves == 0) break;
+        }
+
+        return moves;
+    }
+
+    /// <summary>
     /// Quality-driven smoothing of interior nodes: each interior node of a tet below <paramref name="qTarget"/> moves
     /// towards the centroid of its neighbours (full, half or quarter step) when that raises the worst quality of its
     /// tets. Surface nodes are untouched (they carry contact and the free surface); symmetry-plane nodes stay on their
@@ -1577,8 +1655,11 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
 
         SmoothInterior(mesh, x, 0.2, 10);
+        UntangleSurface(mesh, x, contact, stuffed, 0.03, 6);
+        SmoothInterior(mesh, x, 0.2, 4);
         double qNew = MinQuality(x, mesh);
-        if (qNew < 0.02)
+        // Accept a sound mesh, or one clearly better than the mesh in use (near closure the old one is worse still).
+        if (qNew < 0.02 && !(qNew > 0.002 && qNew > qOld + 0.002))
         {
             _log(F($"  remesh ({reason}) rejected: new mesh quality {qNew:F3}."));
             return false;
