@@ -55,6 +55,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
     {
         int scrub = vm.ScrubIndex;
         var field = vm.SelectedField;
+        bool cut = vm.CutAway; // selecting Grain flow switches the section on
         vm.IsExporting = true;
         try
         {
@@ -63,6 +64,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
         finally
         {
             vm.SelectedField = field;
+            vm.CutAway = cut;
             vm.ScrubIndex = scrub;
             vm.IsExporting = false;
             await SettleAsync();
@@ -208,6 +210,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
         r.Chart = Save(FrameCapture.RenderElement(window.LoadChart, 2), Path.Combine(img, "telemetry_chart.png"));
 
         // Every field at the final increment.
+        bool cutBefore = vm.CutAway;
         foreach (var f in vm.Fields)
         {
             ct.ThrowIfCancellationRequested();
@@ -216,6 +219,8 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
             await SettleAsync();
             r.Fields.Add((f.Name, f.Unit, Save(FrameCapture.RenderElement(ActiveView, 1.5), Path.Combine(img, "final_" + (f.GrainFlow ? "grain_flow" : FieldName(f.Field)) + ".png"))));
         }
+
+        vm.CutAway = cutBefore; // Grain flow (last) switched the section on
 
         // Stages of the descent for the field selected when the report was started.
         vm.SelectedField = originalField;

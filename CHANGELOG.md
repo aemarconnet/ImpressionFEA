@@ -12,6 +12,10 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
     drawn on the cut faces of the revolved (cut-away) or extruded part in the 3D view.
   - 3D: the billet position of the material is carried through the run (across remeshes); section the part
     (Cut-away) and the fibre lines are drawn on an exactly flat cut face. A cut across the fibre shows end grain.
+    Selecting Grain flow switches the section on.
+- Input limits: every numeric input has an allowed range (in solver units, converted to the display units). A value
+  outside it is set to the nearest limit and flagged in red with the allowed range. Temperature is limited to the
+  selected material's calibrated window.
 - **Die edges** (3D view, View ▾ → Display): thin dark lines on the sharp edges of the die geometry (and the cut-away
   faces), so the dies read even when the shading is flat or translucent.
 - Iso-clip handles move in steps of 1/120 of the range (Shift: whole colour bands) and show their value.

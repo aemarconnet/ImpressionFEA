@@ -598,6 +598,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         {
             if (!Set(ref _selectedField, value)) return;
             ResetClip(); // a clip range belongs to one field
+            if (value.GrainFlow) CutAway = true; // fibre lines are drawn on the section
             OnPropertyChanged(nameof(IsGrainFlow));
             OnPropertyChanged(nameof(ShowFieldColors));
             OnPropertyChanged(nameof(DisplayFlowLines));
@@ -642,6 +643,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         {
             if (_analysis3D) value = true;
             if (!Set(ref _is3D, value)) return;
+            if (value && _selectedField.GrainFlow) CutAway = true; // fibre lines are drawn on the section
             OnPropertyChanged(nameof(Is2D));
             OnPropertyChanged(nameof(FieldTitle));
         }

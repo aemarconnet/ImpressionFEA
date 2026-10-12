@@ -127,19 +127,19 @@
                                                 <ComboBox ItemsSource="{Binding WorkpieceShapes}" SelectedItem="{Binding WorkpieceShape}"
                                                           ToolTip="VerticalBar: round bar on end · HorizontalBar: round bar lying flat · Block: rectangular block" />
                                                 <StackPanel Visibility="{Binding WorkpieceIsBar, Converter={StaticResource BoolToVis}}">
-                                                    <c:NumericField Label="Diameter D" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceDiameterU}" Format="{Binding LengthFormat}" />
-                                                    <c:NumericField Label="{Binding WorkpieceLengthLabel}" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceLengthU}" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="Diameter D" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceDiameterU}" Quantity="Length" Minimum="1" Maximum="2000" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="{Binding WorkpieceLengthLabel}" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceLengthU}" Quantity="Length" Minimum="1" Maximum="3000" Format="{Binding LengthFormat}" />
                                                 </StackPanel>
                                                 <StackPanel Visibility="{Binding WorkpieceIsBlock, Converter={StaticResource BoolToVis}}">
-                                                    <c:NumericField Label="Width (x)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceWidthU}" Format="{Binding LengthFormat}" />
-                                                    <c:NumericField Label="Depth (y)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceDepthU}" Format="{Binding LengthFormat}" />
-                                                    <c:NumericField Label="Height (z)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceHeightU}" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="Width (x)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceWidthU}" Quantity="Length" Minimum="1" Maximum="2000" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="Depth (y)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceDepthU}" Quantity="Length" Minimum="1" Maximum="2000" Format="{Binding LengthFormat}" />
+                                                    <c:NumericField Label="Height (z)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceHeightU}" Quantity="Length" Minimum="1" Maximum="2000" Format="{Binding LengthFormat}" />
                                                 </StackPanel>
-                                                <c:NumericField Label="Rotation about press axis" Unit="°" Value="{Binding WorkpieceAngle}" Format="F1"
+                                                <c:NumericField Label="Rotation about press axis" Unit="°" Value="{Binding WorkpieceAngle}" Quantity="Plain" Minimum="-360" Maximum="360" Format="F1"
                                                                 IsEnabled="{Binding WorkpieceCanRotate}" ToolTip="0° = bar / block aligned with x" />
-                                                <c:NumericField Label="Position X" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetXU}" Format="{Binding LengthFormat}"
+                                                <c:NumericField Label="Position X" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetXU}" Quantity="Length" Minimum="-2000" Maximum="2000" Format="{Binding LengthFormat}"
                                                                 ToolTip="Plan position of the workpiece centre; 0 = centre of the bottom die" />
-                                                <c:NumericField Label="Position Y" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetYU}" Format="{Binding LengthFormat}" />
+                                                <c:NumericField Label="Position Y" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetYU}" Quantity="Length" Minimum="-2000" Maximum="2000" Format="{Binding LengthFormat}" />
                                                 <DockPanel Margin="0,6,0,0">
                                                     <Button DockPanel.Dock="Right" Content="Size to cavity +10 %" Command="{Binding SizeWorkpieceFromCavityCommand}"
                                                             Style="{StaticResource FlatButton}" Padding="8,2"
@@ -152,9 +152,9 @@
                                         <TextBlock Text="{Binding DieDescription}" Style="{StaticResource Note}" />
                                         <TextBlock Text="{Binding SymmetryText}" Style="{StaticResource Note}" />
                                         <StackPanel Visibility="{Binding BilletEditable, Converter={StaticResource BoolToVis}}">
-                                            <c:NumericField Label="{Binding RadiusLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletRadiusU}" Format="{Binding LengthFormat}" />
-                                            <c:NumericField Label="Billet height H" Unit="{Binding LengthUnit}" Value="{Binding BilletHeightU}" Format="{Binding LengthFormat}" IsEnabled="{Binding HeightEnabled}" />
-                                            <c:NumericField Label="{Binding LengthLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletLengthU}" Format="{Binding LengthFormat}"
+                                            <c:NumericField Label="{Binding RadiusLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletRadiusU}" Quantity="Length" Minimum="0.5" Maximum="1000" Format="{Binding LengthFormat}" />
+                                            <c:NumericField Label="Billet height H" Unit="{Binding LengthUnit}" Value="{Binding BilletHeightU}" Quantity="Length" Minimum="1" Maximum="3000" Format="{Binding LengthFormat}" IsEnabled="{Binding HeightEnabled}" />
+                                            <c:NumericField Label="{Binding LengthLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletLengthU}" Quantity="Length" Minimum="1" Maximum="3000" Format="{Binding LengthFormat}"
                                                             IsEnabled="{Binding LengthEnabled}" ToolTip="Plane strain: out-of-plane length. 3D bar: bar length." />
                                         </StackPanel>
                                         <TextBlock Text="{Binding VolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
@@ -162,18 +162,18 @@
                                         <TextBlock Text="Material" Style="{StaticResource SectionHeader}" />
                                         <ComboBox ItemsSource="{Binding Materials}" SelectedItem="{Binding SelectedMaterial}" />
                                         <TextBlock Text="σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ, isothermal" Style="{StaticResource Note}" />
-                                        <c:NumericField Label="Temperature T" Unit="{Binding TemperatureUnit}" Value="{Binding TemperatureU}" Format="F0" />
-                                        <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Format="F2"
+                                        <c:NumericField Label="Temperature T" Unit="{Binding TemperatureUnit}" Value="{Binding TemperatureU}" Quantity="Temperature" Minimum="{Binding SelectedMaterial.TMin}" Maximum="{Binding SelectedMaterial.TMax}" Format="F0" />
+                                        <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Quantity="Plain" Minimum="0" Maximum="1" Format="F2"
                                                         ToolTip="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
                                         <TextBlock Text="{Binding MaterialText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <TextBlock Text="Mesh" Style="{StaticResource SectionHeader}" />
-                                        <c:NumericField Label="Target element size h" Unit="{Binding LengthUnit}" Value="{Binding ElementSizeU}" Format="{Binding FineLengthFormat}" />
+                                        <c:NumericField Label="Target element size h" Unit="{Binding LengthUnit}" Value="{Binding ElementSizeU}" Quantity="Length" Minimum="0.1" Maximum="50" Format="{Binding FineLengthFormat}" />
                                         <TextBlock Text="{Binding MeshText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <TextBlock Text="Press" Style="{StaticResource SectionHeader}" />
-                                        <c:NumericField Label="Ram speed v" Unit="{Binding SpeedUnit}" Value="{Binding RamSpeedU}" Format="{Binding LengthFormat}" />
-                                        <c:NumericField Label="Press capacity" Unit="{Binding LoadUnit}" Value="{Binding PressCapacityU}" Format="{Binding LoadInputFormat}" />
+                                        <c:NumericField Label="Ram speed v" Unit="{Binding SpeedUnit}" Value="{Binding RamSpeedU}" Quantity="Length" Minimum="0.01" Maximum="10000" Format="{Binding LengthFormat}" />
+                                        <c:NumericField Label="Press capacity" Unit="{Binding LoadUnit}" Value="{Binding PressCapacityU}" Quantity="Load" Minimum="1" Maximum="100000" Format="{Binding LoadInputFormat}" />
                                         <TextBlock Text="{Binding PressText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <Border Margin="0,12,0,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Warn}" Background="#FFF8EC"
@@ -190,7 +190,7 @@
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Margin="8,0,8,12" IsEnabled="{Binding CanEdit}">
                                     <TextBlock Text="Increment" Style="{StaticResource SectionHeader}" />
-                                    <c:NumericField Label="Stroke increment Δs" Unit="{Binding LengthUnit}" Value="{Binding StrokeIncrementU}" Format="{Binding FineLengthFormat}" />
+                                    <c:NumericField Label="Stroke increment Δs" Unit="{Binding LengthUnit}" Value="{Binding StrokeIncrementU}" Quantity="Length" Minimum="0.01" Maximum="10" Format="{Binding FineLengthFormat}" />
                                     <TextBlock Style="{StaticResource Note}" Text="Nominal ram travel per increment (≤ 0.4·h). With auto time-stepping the solver shrinks it where needed and grows it back." />
 
                                     <TextBlock Text="Robustness (3D solver)" Style="{StaticResource SectionHeader}" />
@@ -208,14 +208,14 @@
                                     <TextBlock Style="{StaticResource Note}" Text="When an increment cannot be recovered by cutbacks and a remesh, the mesh is refined around the failure (die corners, flash) down to h / 2ⁿ. 0 = uniform mesh only." />
                                     <CheckBox Content="Also refine thin flash regions" IsChecked="{Binding RefineThinFlash}" Margin="0,6,0,0" />
                                     <TextBlock Style="{StaticResource Note}" Text="Refines wherever the closed die gap is under 2.5·h. Better flash resolution; more nodes and solve time." />
-                                    <c:NumericField Label="Remesh below quality" Unit="–" Value="{Binding RemeshQualityThreshold}" Format="F2"
+                                    <c:NumericField Label="Remesh below quality" Unit="–" Value="{Binding RemeshQualityThreshold}" Quantity="Plain" Minimum="0.02" Maximum="0.4" Format="F2"
                                                     ToolTip="Normalised element quality (1 = regular tetrahedron). Lower = fewer remeshes, higher = earlier remeshing." />
-                                    <c:NumericField Label="Node budget" Unit="nodes" Value="{Binding MaxNodeCount}" Format="F0"
+                                    <c:NumericField Label="Node budget" Unit="nodes" Value="{Binding MaxNodeCount}" Quantity="Plain" Minimum="1000" Maximum="60000" Format="F0"
                                                     ToolTip="Upper limit for the initial mesh and for local refinement (memory and time grow with it)." />
 
                                     <TextBlock Text="Nonlinear solver (3D)" Style="{StaticResource SectionHeader}" />
-                                    <c:NumericField Label="Max iterations per increment" Unit="" Value="{Binding MaxIterations}" Format="F0" />
-                                    <c:NumericField Label="Convergence tolerance |Δv|/|v|" Unit="" Value="{Binding Tolerance}" Format="0.0E+0" />
+                                    <c:NumericField Label="Max iterations per increment" Unit="" Value="{Binding MaxIterations}" Quantity="Plain" Minimum="5" Maximum="500" Format="F0" />
+                                    <c:NumericField Label="Convergence tolerance |Δv|/|v|" Unit="" Value="{Binding Tolerance}" Quantity="Plain" Minimum="1e-9" Maximum="0.01" Format="0.0E+0" />
 
                                     <TextBlock Text="Linear solver (3D)" Style="{StaticResource SectionHeader}" />
                                     <ComboBox ItemsSource="{Binding Backends}" SelectedItem="{Binding SelectedBackend}" />
