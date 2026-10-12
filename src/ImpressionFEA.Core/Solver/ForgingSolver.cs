@@ -262,11 +262,20 @@ public sealed class ForgingSolver : IForgingStepper
                 break;
         }
 
+        bool remeshedOnUpdate = false;
         if (!ok)
-            throw new MeshDistortionException(F($"Mesh distortion at step {StepIndex} (stroke {_gap0 - _gap:F3} mm): {why}. Results up to the previous increment are kept; refine h or reduce Δs."));
+        {
+            remeshedOnUpdate = RemeshOnFoldedUpdate(dt, out double dtf);
+            if (!remeshedOnUpdate)
+                throw new MeshDistortionException(F($"Mesh distortion at step {StepIndex} (stroke {_gap0 - _gap:F3} mm): {why}. Results up to the previous increment are kept; refine h or reduce Δs."));
+            dt = dtf;
+        }
 
-        for (int e = 0; e < _ne; e++) _eps[e] += _elRate[e] * dt;
-        AccumulateDamage(dt);
+        if (!remeshedOnUpdate)
+        {
+            for (int e = 0; e < _ne; e++) _eps[e] += _elRate[e] * dt;
+            AccumulateDamage(dt);
+        }
         var beforeCapture = ((Vec2[])_x.Clone(), (NodeContact[])_contact.Clone());
         int captured = CaptureFoldOver();
         if (captured > 0 && (MinQuality(_x) <= 0.002 || !Remesh(F($"fold-over, {captured} node(s) laid on die"))))
@@ -776,7 +785,8 @@ public sealed class ForgingSolver : IForgingStepper
 
     // ------------------------------------------------------------------ geometry update and contact
 
-    private bool TryUpdate(double dt, out string why)
+    /// <param name="allowFold">Accept an update that folds elements (only the outline is kept, see <see cref="RemeshOnFoldedUpdate"/>).</param>
+    private bool TryUpdate(double dt, out string why, bool allowFold = false)
     {
         double gapT = Math.Max(0, _gap - _ram * dt);
         if (gapT < 1e-9) gapT = 0;
@@ -830,7 +840,13 @@ public sealed class ForgingSolver : IForgingStepper
             return false;
         }
 
-        for (int e = 0; e < _ne; e++)
+        if (allowFold && xT.Any(p => p.X < 0))
+        {
+            why = "node crossed the axis";
+            return false;
+        }
+
+        for (int e = 0; e < _ne && !allowFold; e++)
         {
             if (Quality(xT, e) <= 0.002)
             {
@@ -845,6 +861,39 @@ public sealed class ForgingSolver : IForgingStepper
         _time += dt;
         why = "";
         return true;
+    }
+
+    /// <summary>
+    /// Last resort when every cutback folds an element: in a thin section or a die fillet the contact projection can
+    /// lay all nodes of a boundary element on the die, which no step size avoids. The update is then accepted with
+    /// the folded element, the strain and damage are integrated on the old connectivity, and the workpiece is
+    /// remeshed on the new outline (remeshing only uses the boundary loop). Tries the full increment first, then
+    /// halves it; everything is rolled back when no remesh is accepted.
+    /// </summary>
+    private bool RemeshOnFoldedUpdate(double dt, out double dtUsed)
+    {
+        var savedX = _x;
+        var savedContact = _contact;
+        double savedGap = _gap, savedTime = _time;
+        var savedEps = (double[])_eps.Clone();
+        var savedDmg = (double[])_dmg.Clone();
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            dtUsed = dt / (1 << attempt);
+            if (!TryUpdate(dtUsed, out _, allowFold: true)) continue;
+            for (int e = 0; e < _ne; e++) _eps[e] += _elRate[e] * dtUsed;
+            AccumulateDamage(dtUsed);
+            if (Remesh(F($"fold during update, remeshed on the updated outline (Δt/{1 << attempt})"))) return true;
+            _x = savedX;
+            _contact = savedContact;
+            _gap = savedGap;
+            _time = savedTime;
+            Array.Copy(savedEps, _eps, _ne);
+            Array.Copy(savedDmg, _dmg, _ne);
+        }
+
+        dtUsed = 0;
+        return false;
     }
 
     /// <summary>Minimum corner scaled Jacobian of element e (1 = rectangle, ≤ 0 = folded).</summary>
@@ -1163,7 +1212,8 @@ public sealed class ForgingSolver : IForgingStepper
             {
                 if (normals[k] == default) continue;
                 var moved = x[nloop[k]] + shift * normals[k];
-                if (_die.Bottom.Clearance(moved, 0) > 0 && _die.TopClosed.Clearance(moved, _gap) > 0) x[nloop[k]] = moved;
+                // Never across the axis: a node at x < 0 has a negative axisymmetric weight 2πr (indefinite stiffness).
+                if (moved.X > 0 && _die.Bottom.Clearance(moved, 0) > 0 && _die.TopClosed.Clearance(moved, _gap) > 0) x[nloop[k]] = moved;
             }
         }
 

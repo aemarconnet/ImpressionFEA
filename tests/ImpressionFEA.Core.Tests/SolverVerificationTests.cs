@@ -150,10 +150,16 @@ public class SolverVerificationTests(ITestOutputHelper output)
 
     [Theory]
     [Trait("Category", "Slow")]
-    [InlineData(10.0)]
-    [InlineData(50.0)]
-    [InlineData(1000.0)]
-    public void Demo3FlangedShaftAluminiumForgesAtEveryRamSpeed(double ramSpeed)
+    [InlineData(10.0, 1.25)]
+    [InlineData(50.0, 1.25)]
+    [InlineData(1000.0, 1.25)]
+    [InlineData(10.0, 1.0)]
+    [InlineData(50.0, 1.0)]
+    [InlineData(1000.0, 1.0)]
+    [InlineData(10.0, 1.5)]
+    [InlineData(50.0, 1.5)]
+    [InlineData(1000.0, 1.5)]
+    public void Demo3FlangedShaftAluminiumForgesAtEveryRamSpeed(double ramSpeed, double elementSize)
     {
         // Demo 3 (ram speed sweep): 6061 at 450 °C in the flanged shaft, billet as wide as the shank pocket.
         var die = DiePresets.All.Single(d => d.Name == "Flanged shaft");
@@ -166,7 +172,7 @@ public class SolverVerificationTests(ITestOutputHelper output)
             BilletHeight = die.RecommendedHeight(die.RecommendedBilletRadius, die.RecommendedLength),
             BilletLength = die.RecommendedLength,
             FrictionFactor = 0.3,
-            ElementSize = 1.25, // as in the demo setup
+            ElementSize = elementSize, // the demo uses 1.25; coarser and finer meshes must forge too
             StrokeIncrement = die.RecommendedStrokeIncrement,
             RamSpeed = ramSpeed,
         };
