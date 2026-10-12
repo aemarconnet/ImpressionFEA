@@ -365,21 +365,24 @@
                                         <CheckBox Content="Element mesh (4-node quadrilaterals)" IsChecked="{Binding ShowMesh}" />
                                         <CheckBox Content="Mirror about the axis" IsChecked="{Binding Mirror}" />
                                         <CheckBox Content="Die contact (amber bottom · magenta top)" IsChecked="{Binding ShowContact}" />
+                                    </StackPanel>
 
+                                    <!-- Grain flow settings (both views), while Grain flow is the selected result -->
+                                    <StackPanel Visibility="{Binding IsGrainFlow, Converter={StaticResource BoolToVis}}">
                                         <TextBlock Text="Grain flow" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
-                                        <CheckBox Content="Grain flow lines (like an etched macro-section)" IsChecked="{Binding ShowFlowLines}"
-                                                  ToolTip="Material lines seeded along the fibre of the bar stock in the billet and carried through every increment with the metal flow. Look for lines following the part contour (good), folding over (laps) and running out through the flash (end grain exposed after trimming)." />
-                                        <DockPanel IsEnabled="{Binding ShowFlowLines}">
+                                        <DockPanel>
                                             <TextBlock DockPanel.Dock="Left" Text="Fibre" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
                                             <ComboBox ItemsSource="{Binding FiberOptions}" SelectedItem="{Binding FlowFiber}"
-                                                      ToolTip="Fibre direction in the billet: Vertical = bar standing along the press axis (upsetting), Horizontal = bar lying across it" />
+                                                      ToolTip="Fibre direction of the bar stock in the billet: Auto = along a horizontal 3D bar, otherwise along the press axis; Vertical = bar standing along the press axis (upsetting); Horizontal = bar lying across it (along x in 3D)" />
                                         </DockPanel>
-                                        <DockPanel IsEnabled="{Binding ShowFlowLines}" Margin="0,4,0,0">
+                                        <DockPanel Margin="0,4,0,0">
                                             <TextBlock DockPanel.Dock="Left" Text="Lines" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
                                             <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding FlowLineCount}" VerticalAlignment="Center" />
                                             <Slider Minimum="4" Maximum="60" Value="{Binding FlowLineCount}" TickFrequency="1" IsSnapToTickEnabled="True"
-                                                    ToolTip="Number of flow lines across the billet" />
+                                                    ToolTip="Number of fibre lines across the billet" />
                                         </DockPanel>
+                                        <TextBlock Text="3D: section the part (Cut-away) to see the lines on the cut face." TextWrapping="Wrap" FontSize="11"
+                                                   Foreground="{StaticResource Muted}" Margin="0,4,0,0" Visibility="{Binding Is3D, Converter={StaticResource BoolToVis}}" />
                                     </StackPanel>
 
                                     <!-- Flow arrows (both views) -->
@@ -411,7 +414,7 @@
                                      ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}" ShowVelocity="{Binding ShowVelocity}" Units="{Binding SelectedUnits}" FlowLines="{Binding DisplayFlowLines}"
                                      ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}" ClipLow="{Binding ClipLow}" ClipHigh="{Binding ClipHigh}"
                                      ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}" />
-                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" ShowDieEdges="{Binding ShowDieEdges}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
+                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" ShowDieEdges="{Binding ShowDieEdges}" GrainFlow="{Binding IsGrainFlow}" FlowLines="{Binding DisplayFlowLines}" FlowField="{Binding DisplayFlowField3D}" FlowFiber="{Binding ResolvedFiber}" FlowLineCount="{Binding FlowLineCount}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
                                        PartVisible="{Binding PartVisible}" PartOpacity="{Binding PartOpacity}" BottomDieVisible="{Binding BottomDieVisible}"
                                        TopDieVisible="{Binding TopDieVisible}" BottomDieOpacity="{Binding BottomDieOpacity}" TopDieOpacity="{Binding TopDieOpacity}" QuadView="{Binding QuadView}" CutAxis="{Binding CutAxis}" CutFlip="{Binding CutFlip}"
                                        CutOffset="{Binding CutOffset}" ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}"

@@ -92,3 +92,81 @@ public class GrainFlowTests
         Assert.True(lines.SelectMany(l => l).Max(p => p.X) > 2 * die.RecommendedBilletRadius);
     }
 }
+
+public class GrainFlow3DTests(Xunit.Abstractions.ITestOutputHelper output)
+{
+    private static List<ForgingSnapshot> Run(ImpressionFEA.Core.ThreeD.SimulationConfig3D cfg, int maxSteps = int.MaxValue)
+    {
+        using var solver = new ImpressionFEA.Core.ThreeD.Forging3DSolver(cfg);
+        var snaps = new List<ForgingSnapshot> { solver.Initial() };
+        while (!solver.IsFinished && snaps.Count <= maxSteps) snaps.Add(solver.Step(CancellationToken.None));
+        return snaps;
+    }
+
+    [Fact]
+    public void WithoutRemeshingEveryNodeKeepsItsBilletPosition()
+    {
+        var cfg = new ImpressionFEA.Core.ThreeD.SimulationConfig3D
+        {
+            Die = ImpressionFEA.Core.ThreeD.DiePresets3D.SimpleUpsetBlock(),
+            Material = new MaterialPreset("Test", "test", CRef: 100, N: 0, M: 0.1, Eps0: 1, TRef: 1000, Beta: 0, TMin: 0, TMax: 2000, DefaultTemperature: 1000),
+            Temperature = 1000, BilletRadius = 20, BilletDimension = 40, FrictionFactor = 0, ElementSize = 3, StrokeIncrement = 0.5, RamSpeed = 40,
+        };
+        var snaps = Run(cfg, 16);
+        var tracer = new GrainFlow3DTracer();
+        var s0 = (Snapshot3D)snaps[0];
+        var r = tracer.At(snaps, snaps.Count - 1)!;
+        // No remesh in a frictionless upset: the nodes are material points, so each keeps its billet position.
+        Assert.All(Enumerable.Range(1, snaps.Count - 1), i => Assert.Same(((Snapshot3D)snaps[i - 1]).Mesh, ((Snapshot3D)snaps[i]).Mesh));
+        for (int n = 0; n < s0.NodeCount; n++)
+        {
+            Assert.Equal(s0.X[n], r.X0[n]);
+            Assert.Equal(s0.Y[n], r.Y0[n]);
+            Assert.Equal(s0.Z[n], r.Z0[n]);
+        }
+
+        // Billet extent: the 40 mm high, R 20 cylinder.
+        Assert.InRange(r.Max.Z - r.Min.Z, 39.9, 40.1);
+        Assert.InRange(r.Max.X, 19, 20.1);
+    }
+
+    [Fact]
+    [Trait("Category", "Slow")]
+    public void ReferenceSurvivesRemeshingAndStaysInTheBillet()
+    {
+        var die = ImpressionFEA.Core.ThreeD.DiePresets3D.GearBlank();
+        var cfg = new ImpressionFEA.Core.ThreeD.SimulationConfig3D
+        {
+            Die = die, Material = MaterialPresets.Steel4140, Temperature = 1150, BilletRadius = die.RecommendedRadius,
+            BilletDimension = die.RecommendedDimension(die.RecommendedRadius), FrictionFactor = 0.3,
+            ElementSize = die.RecommendedElementSize, StrokeIncrement = die.RecommendedStrokeIncrement, RamSpeed = 50,
+        };
+        var snaps = Run(cfg, 70); // the first ~70 increments include several remeshes
+        var tracer = new GrainFlow3DTracer();
+        int remeshed = 0;
+        GrainReference3D? r = null;
+        for (int k = 0; k < snaps.Count; k++)
+        {
+            r = tracer.At(snaps, k)!;
+            if (k > 0 && !ReferenceEquals(((Snapshot3D)snaps[k]).Mesh, ((Snapshot3D)snaps[k - 1]).Mesh)) remeshed++;
+        }
+
+        output.WriteLine($"{snaps.Count} increments, {remeshed} remeshes");
+        Assert.True(remeshed > 0);
+        var tol = 0.02 * (r!.Max.Z - r.Min.Z);
+        for (int n = 0; n < r.X0.Length; n++)
+        {
+            Assert.False(float.IsNaN(r.X0[n]) || float.IsNaN(r.Y0[n]) || float.IsNaN(r.Z0[n]));
+            Assert.InRange(r.X0[n], r.Min.X - tol, r.Max.X + tol);
+            Assert.InRange(r.Y0[n], r.Min.Y - tol, r.Max.Y + tol);
+            Assert.InRange(r.Z0[n], r.Min.Z - tol, r.Max.Z + tol);
+        }
+
+        // The flash (outer rim, far beyond the billet radius) came from the billet's outer region near mid-height.
+        var s = (Snapshot3D)snaps[^1];
+        int outer = Enumerable.Range(0, s.NodeCount).MaxBy(n => s.X[n] * s.X[n] + s.Y[n] * s.Y[n]);
+        double r0 = Math.Sqrt(r.X0[outer] * r.X0[outer] + r.Y0[outer] * r.Y0[outer]);
+        output.WriteLine($"outermost node at R {Math.Sqrt(s.X[outer] * s.X[outer] + s.Y[outer] * s.Y[outer]):F1} came from R0 {r0:F1}");
+        Assert.True(r0 > 0.5 * die.RecommendedRadius);
+    }
+}

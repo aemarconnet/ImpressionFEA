@@ -33,7 +33,8 @@ public enum RunState
     Failed,
 }
 
-public sealed record FieldOption(ResultField Field, string Name, string Unit)
+/// <param name="GrainFlow">Grain flow lines instead of a contour field (<paramref name="Field"/> then only feeds exports).</param>
+public sealed record FieldOption(ResultField Field, string Name, string Unit, bool GrainFlow = false)
 {
     public override string ToString() => Name;
 }
@@ -113,6 +114,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             new(ResultField.EffectiveStrainRate, "Effective strain rate ε̄̇", "1/s"),
             new(ResultField.MeanStress, "Mean (hydrostatic) stress σm", "MPa"),
             new(ResultField.Damage, "Damage (Cockcroft–Latham)", "–"),
+            new(ResultField.EffectiveStrain, "Grain flow (fibre lines)", "–", GrainFlow: true),
         ];
         _selectedField = Fields[0];
         _selectedMaterial = Materials[0];
@@ -571,6 +573,8 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             if (!Set(ref _currentSnapshot, value)) return;
             OnPropertyChanged(nameof(DisplaySnapshot));
             OnPropertyChanged(nameof(DisplayFlowLines));
+            OnPropertyChanged(nameof(DisplayFlowField3D));
+            OnPropertyChanged(nameof(ResolvedFiber));
             OnPropertyChanged(nameof(ShowFieldColors));
             OnPropertyChanged(nameof(FieldTitle));
             UpdateReadouts();
@@ -581,7 +585,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     /// <summary>What the viewport draws: the selected increment, or the pre-run preview.</summary>
     public ForgingSnapshot? DisplaySnapshot => _currentSnapshot ?? _preview;
 
-    public bool ShowFieldColors => _currentSnapshot is not null && _colorMap;
+    public bool ShowFieldColors => _currentSnapshot is not null && _colorMap && !_selectedField.GrainFlow;
 
     public Rect ViewBounds { get => _viewBounds; private set => Set(ref _viewBounds, value); }
 
@@ -594,6 +598,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         {
             if (!Set(ref _selectedField, value)) return;
             ResetClip(); // a clip range belongs to one field
+            OnPropertyChanged(nameof(IsGrainFlow));
+            OnPropertyChanged(nameof(ShowFieldColors));
+            OnPropertyChanged(nameof(DisplayFlowLines));
+            OnPropertyChanged(nameof(DisplayFlowField3D));
+            OnPropertyChanged(nameof(ResolvedFiber));
             OnPropertyChanged(nameof(RangeMin));
             OnPropertyChanged(nameof(RangeMax));
             OnPropertyChanged(nameof(FieldTitle));
@@ -604,6 +613,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     public string FieldTitle => _currentSnapshot is null
         ? "Setup preview · billet seated in the open dies"
+        : _selectedField.GrainFlow ? GrainFlowTitle
         : $"{_selectedField.Name}  [{DisplayUnit(_selectedField.Field)}]";
 
     public double RangeMin => _snapshots.Count > 0 ? _fieldMin[(int)_selectedField.Field] : 0;
@@ -633,6 +643,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             if (_analysis3D) value = true;
             if (!Set(ref _is3D, value)) return;
             OnPropertyChanged(nameof(Is2D));
+            OnPropertyChanged(nameof(FieldTitle));
         }
     }
 
@@ -642,7 +653,14 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         set => Is3D = !value;
     }
 
-    public bool CutAway { get => _cutAway; set => Set(ref _cutAway, value); }
+    public bool CutAway
+    {
+        get => _cutAway;
+        set
+        {
+            if (Set(ref _cutAway, value)) OnPropertyChanged(nameof(FieldTitle)); // grain flow hint
+        }
+    }
 
     public bool ShowDies { get => _showDies; set => Set(ref _showDies, value); }
 

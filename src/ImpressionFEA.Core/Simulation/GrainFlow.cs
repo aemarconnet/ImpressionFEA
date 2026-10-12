@@ -5,10 +5,13 @@ namespace ImpressionFEA.Core.Simulation;
 /// <summary>Direction of the bar-stock fibre (grain) in the starting billet of a 2D section.</summary>
 public enum FiberDirection
 {
+    /// <summary>From the billet: along a horizontal bar's axis, otherwise along the press axis.</summary>
+    Auto,
+
     /// <summary>Along the press axis (a bar standing upright: axisymmetric upsetting).</summary>
     Vertical,
 
-    /// <summary>Across the press axis (radial in axisymmetry, a bar lying in the section plane in plane strain).</summary>
+    /// <summary>Across the press axis (radial in axisymmetry, a bar lying in the section plane in plane strain; along model x in 3D).</summary>
     Horizontal,
 }
 
@@ -85,7 +88,7 @@ public sealed class GrainFlowTracer
             yMax = Math.Max(yMax, s.Y[n]);
         }
 
-        bool vertical = Direction == FiberDirection.Vertical;
+        bool vertical = Direction != FiberDirection.Horizontal;
         double across = vertical ? xMax - xMin : yMax - yMin;
         double along = vertical ? yMax - yMin : xMax - xMin;
         double spacing = across / LineCount;

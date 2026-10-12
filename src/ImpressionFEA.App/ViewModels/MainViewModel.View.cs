@@ -4,6 +4,7 @@ using ImpressionFEA.App.Controls;
 using ImpressionFEA.App.Infrastructure;
 using ImpressionFEA.Core.Geometry;
 using ImpressionFEA.Core.Simulation;
+using ImpressionFEA.Core.ThreeD;
 
 namespace ImpressionFEA.App.ViewModels;
 
@@ -73,7 +74,14 @@ public sealed partial class MainViewModel
 
     public IReadOnlyList<CutPlaneAxis> CutAxisOptions { get; } = Enum.GetValues<CutPlaneAxis>();
 
-    public CutPlaneAxis CutAxis { get => _cutAxis; set => Set(ref _cutAxis, value); }
+    public CutPlaneAxis CutAxis
+    {
+        get => _cutAxis;
+        set
+        {
+            if (Set(ref _cutAxis, value)) OnPropertyChanged(nameof(FieldTitle)); // grain flow end-grain hint
+        }
+    }
 
     public bool CutFlip { get => _cutFlip; set => Set(ref _cutFlip, value); }
 
@@ -90,32 +98,28 @@ public sealed partial class MainViewModel
 
     public double ArrowScale { get => _arrowScale; set => Set(ref _arrowScale, Math.Clamp(value, 0.1, 5)); }
 
-    // ---------------------------------------------------------------- grain flow lines (2D)
+    // ---------------------------------------------------------------- grain flow (a "field" of the results list)
 
-    private bool _showFlowLines;
-    private FiberDirection _flowFiber = FiberDirection.Vertical;
+    private FiberDirection _flowFiber = FiberDirection.Auto;
     private int _flowLineCount = 16;
     private GrainFlowTracer? _flowTracer;
+    private GrainFlow3DTracer? _flowTracer3D;
 
     public IReadOnlyList<FiberDirection> FiberOptions { get; } = Enum.GetValues<FiberDirection>();
 
-    /// <summary>Overlay grain flow lines: material lines seeded along the billet fibre and carried through the forging.</summary>
-    public bool ShowFlowLines
-    {
-        get => _showFlowLines;
-        set
-        {
-            if (Set(ref _showFlowLines, value)) OnPropertyChanged(nameof(DisplayFlowLines));
-        }
-    }
+    /// <summary>Grain flow is the selected result: fibre lines instead of contour colours.</summary>
+    public bool IsGrainFlow => _selectedField.GrainFlow;
 
-    /// <summary>Fibre direction of the bar stock in the starting billet.</summary>
+    /// <summary>Fibre direction of the bar stock in the starting billet (Auto: from the billet shape).</summary>
     public FiberDirection FlowFiber
     {
         get => _flowFiber;
         set
         {
-            if (Set(ref _flowFiber, value)) OnPropertyChanged(nameof(DisplayFlowLines));
+            if (!Set(ref _flowFiber, value)) return;
+            OnPropertyChanged(nameof(DisplayFlowLines));
+            OnPropertyChanged(nameof(ResolvedFiber));
+            OnPropertyChanged(nameof(FieldTitle));
         }
     }
 
@@ -129,14 +133,33 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>Fibre direction actually used: Auto follows a horizontal 3D bar, otherwise the press axis.</summary>
+    public FiberDirection ResolvedFiber => _flowFiber != FiberDirection.Auto ? _flowFiber
+        : ActiveDie3D?.Billet == BilletShape.HorizontalBar && _currentSnapshot is Snapshot3D ? FiberDirection.Horizontal : FiberDirection.Vertical;
+
+    /// <summary>Title while grain flow is shown, with a hint when the lines cannot be seen in the current view.</summary>
+    private string GrainFlowTitle
+    {
+        get
+        {
+            const string title = "Grain flow · fibre lines traced from the billet";
+            if (!_is3D || IsPlaneStrainResult) return title;
+            if (!_cutAway) return title + "  —  section the part (View ▾ → Cut-away) to see them";
+            if (_currentSnapshot is Snapshot3D && ResolvedFiber == FiberDirection.Horizontal && _cutAxis == CutPlaneAxis.X)
+                return title + "  —  this section is across the fibre (end grain): cut along Y";
+            return title;
+        }
+    }
+
     /// <summary>Flow lines of the shown 2D increment (traced on demand and cached for the run), or null.</summary>
     public IReadOnlyList<Vec2[]>? DisplayFlowLines
     {
         get
         {
-            if (!_showFlowLines || _currentSnapshot is not StepSnapshot || _scrubIndex < 0 || _scrubIndex >= _snapshots.Count) return null;
-            if (_flowTracer is null || _flowTracer.Direction != _flowFiber || _flowTracer.LineCount != _flowLineCount)
-                _flowTracer = new GrainFlowTracer(_flowFiber, _flowLineCount);
+            if (!IsGrainFlow || _currentSnapshot is not StepSnapshot || _scrubIndex < 0 || _scrubIndex >= _snapshots.Count) return null;
+            var fiber = ResolvedFiber;
+            if (_flowTracer is null || _flowTracer.Direction != fiber || _flowTracer.LineCount != _flowLineCount)
+                _flowTracer = new GrainFlowTracer(fiber, _flowLineCount);
             try
             {
                 return _flowTracer.LinesAt(_snapshots, _scrubIndex);
@@ -144,6 +167,25 @@ public sealed partial class MainViewModel
             catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException or InvalidOperationException)
             {
                 _flowTracer = null; // a view overlay must never take the app down
+                return null;
+            }
+        }
+    }
+
+    /// <summary>Reference (billet) positions of the shown 3D increment, for flow lines on a section; or null.</summary>
+    public GrainReference3D? DisplayFlowField3D
+    {
+        get
+        {
+            if (!IsGrainFlow || _currentSnapshot is not Snapshot3D || _scrubIndex < 0 || _scrubIndex >= _snapshots.Count) return null;
+            _flowTracer3D ??= new GrainFlow3DTracer();
+            try
+            {
+                return _flowTracer3D.At(_snapshots, _scrubIndex);
+            }
+            catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException or InvalidOperationException)
+            {
+                _flowTracer3D = null;
                 return null;
             }
         }
@@ -172,8 +214,8 @@ public sealed partial class MainViewModel
         ArrowSpacing = 1.6;
         ArrowScale = 1;
         Lighting = ViewLighting.Shaded;
-        ShowEdges = ShowContact = ShowVelocity = ShowDieEdges = ShowFlowLines = false;
-        FlowFiber = FiberDirection.Vertical;
+        ShowEdges = ShowContact = ShowVelocity = ShowDieEdges = false;
+        FlowFiber = FiberDirection.Auto;
         FlowLineCount = 16;
     });
 

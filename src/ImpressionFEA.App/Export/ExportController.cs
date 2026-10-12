@@ -214,7 +214,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
             vm.SetStatus("Report: " + f.Name + "…");
             vm.SelectedField = f;
             await SettleAsync();
-            r.Fields.Add((f.Name, f.Unit, Save(FrameCapture.RenderElement(ActiveView, 1.5), Path.Combine(img, "final_" + FieldName(f.Field) + ".png"))));
+            r.Fields.Add((f.Name, f.Unit, Save(FrameCapture.RenderElement(ActiveView, 1.5), Path.Combine(img, "final_" + (f.GrainFlow ? "grain_flow" : FieldName(f.Field)) + ".png"))));
         }
 
         // Stages of the descent for the field selected when the report was started.

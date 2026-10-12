@@ -17,7 +17,7 @@ namespace ImpressionFEA.App.Controls;
 /// middle-drag rotate, Ctrl+middle pan, Shift+middle zoom, Alt+middle roll, wheel zooms about the cursor, F fits,
 /// Ctrl+1…7 standard views, Space opens the view menu, arrows rotate 15° (Shift 90°, Ctrl pans, Alt rolls).
 /// </summary>
-public sealed class SolidViewport3D : Grid
+public sealed partial class SolidViewport3D : Grid
 {
     public static readonly DependencyProperty SnapshotProperty = Reg(nameof(Snapshot), typeof(ForgingSnapshot), null, false);
     public static readonly DependencyProperty Die3DProperty = Reg(nameof(Die3D), typeof(DieSet3D), null, true);
@@ -31,6 +31,26 @@ public sealed class SolidViewport3D : Grid
     public static readonly DependencyProperty ShowDiesProperty = Reg(nameof(ShowDies), typeof(bool), true, false);
     public static readonly DependencyProperty ShowEdgesProperty = Reg(nameof(ShowEdges), typeof(bool), false, false);
     public static readonly DependencyProperty ShowDieEdgesProperty = Reg(nameof(ShowDieEdges), typeof(bool), false, false);
+    public static readonly DependencyProperty GrainFlowProperty = Reg(nameof(GrainFlow), typeof(bool), false, false);
+    public static readonly DependencyProperty FlowLinesProperty = Reg(nameof(FlowLines), typeof(IReadOnlyList<Vec2[]>), null, false);
+    public static readonly DependencyProperty FlowFieldProperty = Reg(nameof(FlowField), typeof(GrainReference3D), null, false);
+    public static readonly DependencyProperty FlowFiberProperty = Reg(nameof(FlowFiber), typeof(FiberDirection), FiberDirection.Vertical, false);
+    public static readonly DependencyProperty FlowLineCountProperty = Reg(nameof(FlowLineCount), typeof(int), 16, false);
+
+    /// <summary>Grain flow is shown: plain part, a flat-cut section (3D results) and fibre lines on the cut faces.</summary>
+    public bool GrainFlow { get => (bool)GetValue(GrainFlowProperty); set => SetValue(GrainFlowProperty, value); }
+
+    /// <summary>2D results: flow lines of the shown increment (r / x, z), drawn on the cut faces of the revolved or extruded part.</summary>
+    public IReadOnlyList<Vec2[]>? FlowLines { get => (IReadOnlyList<Vec2[]>?)GetValue(FlowLinesProperty); set => SetValue(FlowLinesProperty, value); }
+
+    /// <summary>3D results: reference (billet) positions of the shown increment; fibre lines are its iso-lines on the section.</summary>
+    public GrainReference3D? FlowField { get => (GrainReference3D?)GetValue(FlowFieldProperty); set => SetValue(FlowFieldProperty, value); }
+
+    /// <summary>Fibre direction of the billet (resolved: Vertical = model z, Horizontal = model x).</summary>
+    public FiberDirection FlowFiber { get => (FiberDirection)GetValue(FlowFiberProperty); set => SetValue(FlowFiberProperty, value); }
+
+    /// <summary>Number of fibre lines across the billet.</summary>
+    public int FlowLineCount { get => (int)GetValue(FlowLineCountProperty); set => SetValue(FlowLineCountProperty, value); }
     public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false, false);
     public static readonly DependencyProperty ShowContactProperty = Reg(nameof(ShowContact), typeof(bool), false, false);
     public static readonly DependencyProperty UnitsProperty = Reg(nameof(Units), typeof(ImpressionFEA.App.Infrastructure.UnitSystem), ImpressionFEA.App.Infrastructure.UnitSystem.US, false);
@@ -691,6 +711,12 @@ public sealed class SolidViewport3D : Grid
             var m = new GeometryModel3D(mesh, field ? _fieldMaterial : _plainMaterial) { BackMaterial = field ? _fieldMaterial : _plainMaterial };
             m.Freeze();
             group.Children.Add(m);
+            if (GrainFlow && FlowLines is { Count: > 0 } flow && (plane || cut))
+            {
+                var b = mesh.Bounds;
+                double diag = Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);
+                group.Children.Add(EdgeTubes(ProfileFlowLines(flow, plane, a0, a1, PartLength, 2e-3 * diag), 6e-4 * diag, default, null));
+            }
         }
 
         if (die is not null && ShowDies)
@@ -855,15 +881,25 @@ public sealed class SolidViewport3D : Grid
                     visible = e => (vals[e] - a0) / span >= lo - 1e-9 && (vals[e] - a0) / span <= hi + 1e-9;
                 }
 
-                var g = BuildPart(s, t, copies, keep, visible);
+                // Grain flow on a section: the part is cut exactly on the plane (flat cap) and the fibre lines are drawn on it.
+                bool grainCut = GrainFlow && CutAway && !arrows;
+                var g = grainCut ? BuildPartFlatCut(s, copies, KeepPlane()) : BuildPart(s, t, copies, keep, visible);
                 double opacity = arrows ? Math.Min(PartOpacity, 0.25) : PartOpacity;
                 var baseMat = arrows ? _ghostMaterial : field ? _fieldMaterial : _plainMaterial;
                 var mat = arrows ? baseMat : Translucent(baseMat, opacity);
                 if (ShowContact) AddContactOverlay(group, s, copies, keep);
+                if (grainCut && FlowField is { } gr)
+                {
+                    var b = Bounds3D;
+                    double diag = Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);
+                    var lines = SectionFlowLines(s, gr, copies, KeepPlane(), FlowFiber, FlowLineCount, 2e-3 * diag);
+                    if (lines.Count > 0) group.Children.Add(EdgeTubes(lines, 6e-4 * diag, default, null));
+                }
+
                 var model = new GeometryModel3D(g, mat) { BackMaterial = mat };
                 model.Freeze();
                 group.Children.Add(model);
-                if (ShowEdges && !arrows) group.Children.Add(EdgeOverlay(g));
+                if (ShowEdges && !arrows && !grainCut) group.Children.Add(EdgeOverlay(g));
             }
         }
 

@@ -4,10 +4,14 @@ The release number lives in `Directory.Build.props` (`<Version>`) and is shown i
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
 ## Unreleased
-- **Grain flow lines** (2D section, View ▾ → Grain flow): material lines seeded along the fibre of the bar stock
-  (vertical or horizontal, 4–60 lines) and carried through every increment with the metal flow, like an etched
-  macro-section. Shows fibre following the contour, laps (lines folding over) and fibre running out through the flash.
-  Computed from the stored results, live during a run and during playback / video export.
+- **Grain flow** result (results list, next to stress and strain), like an etched macro-section: fibre following the
+  contour, laps (lines folding over) and fibre running out through the flash. Fibre direction (Auto / vertical /
+  horizontal) and 4–60 lines under View ▾. Computed from the stored results, live during a run and in playback,
+  videos and reports.
+  - 2D: material lines seeded along the billet fibre and carried through every increment with the metal flow; also
+    drawn on the cut faces of the revolved (cut-away) or extruded part in the 3D view.
+  - 3D: the billet position of the material is carried through the run (across remeshes); section the part
+    (Cut-away) and the fibre lines are drawn on an exactly flat cut face. A cut across the fibre shows end grain.
 - **Die edges** (3D view, View ▾ → Display): thin dark lines on the sharp edges of the die geometry (and the cut-away
   faces), so the dies read even when the shading is flat or translucent.
 - Iso-clip handles move in steps of 1/120 of the range (Shift: whole colour bands) and show their value.
