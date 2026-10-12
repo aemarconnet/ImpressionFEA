@@ -3,7 +3,7 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
-## Unreleased
+## 0.8.0
 - **Grain flow** result (results list, next to stress and strain), like an etched macro-section: fibre following the
   contour, laps (lines folding over) and fibre running out through the flash. Fibre direction (Auto / vertical /
   horizontal) and 4–60 lines under View ▾. Computed from the stored results, live during a run and in playback,
