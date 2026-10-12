@@ -3,11 +3,12 @@ using ImpressionFEA.Core.ThreeD;
 namespace ImpressionFEA.Core.Simulation;
 
 /// <summary>
-/// Reference (billet) position of every node of one 3D increment, and the extent of the billet. A fibre of the bar
-/// stock is the set of material points with the same reference position across the fibre direction, so iso-lines of a
-/// reference coordinate on a section are the grain flow lines of an etched cut.
+/// Reference (billet) position of every node of a 3D mesh (<paramref name="Mesh"/>, shared by the increments between
+/// remeshes; use the field only with that mesh), and the extent of the billet. A fibre of the bar stock is the set of
+/// material points with the same reference position across the fibre direction, so iso-lines of a reference
+/// coordinate on a section are the grain flow lines of an etched cut.
 /// </summary>
-public sealed record GrainReference3D(float[] X0, float[] Y0, float[] Z0, Vec3 Min, Vec3 Max);
+public sealed record GrainReference3D(TetMesh Mesh, float[] X0, float[] Y0, float[] Z0, Vec3 Min, Vec3 Max);
 
 /// <summary>
 /// Grain flow of a 3D forging (post-processing only): carries the reference position of the material through every
@@ -59,7 +60,7 @@ public sealed class GrainFlow3DTracer
             z0 = Math.Min(z0, s.Z[n]); z1 = Math.Max(z1, s.Z[n]);
         }
 
-        return new GrainReference3D(s.X, s.Y, s.Z, new Vec3(x0, y0, z0), new Vec3(x1, y1, z1));
+        return new GrainReference3D(s.Mesh, s.X, s.Y, s.Z, new Vec3(x0, y0, z0), new Vec3(x1, y1, z1));
     }
 
     private GrainReference3D Advance(Snapshot3D cur)
@@ -100,7 +101,7 @@ public sealed class GrainFlow3DTracer
             rz[n] = (float)(w0 * pr.Z0[a] + w1 * pr.Z0[b] + w2 * pr.Z0[c] + w3 * pr.Z0[d]);
         }
 
-        return pr with { X0 = rx, Y0 = ry, Z0 = rz };
+        return pr with { Mesh = cur.Mesh, X0 = rx, Y0 = ry, Z0 = rz };
     }
 
     /// <summary>Barycentric weights of p in tet abcd with negative weights cut to zero (p just outside the mesh).</summary>

@@ -683,7 +683,31 @@ public sealed partial class SolidViewport3D : Grid
 
     // ------------------------------------------------------------------ geometry
 
+    private bool _rebuildPending;
+
+    /// <summary>
+    /// Queues one rebuild after the current batch of property changes (bindings update several properties per view-model
+    /// change, e.g. the snapshot and its grain field; rebuilding on each would draw half-updated, mismatched inputs).
+    /// </summary>
     private void Rebuild()
+    {
+        if (_rebuildPending) return;
+        _rebuildPending = true;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render, () =>
+        {
+            _rebuildPending = false;
+            try
+            {
+                RebuildNow();
+            }
+            catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException or InvalidOperationException or NullReferenceException)
+            {
+                App.LogError(ex); // a drawing fault must not stop the view from updating with the next change
+            }
+        });
+    }
+
+    private void RebuildNow()
     {
         if (!IsVisible) return; // rebuilt when shown
         if (Die3D is { } d3)
@@ -888,7 +912,8 @@ public sealed partial class SolidViewport3D : Grid
                 var baseMat = arrows ? _ghostMaterial : field ? _fieldMaterial : _plainMaterial;
                 var mat = arrows ? baseMat : Translucent(baseMat, opacity);
                 if (ShowContact) AddContactOverlay(group, s, copies, keep);
-                if (grainCut && FlowField is { } gr)
+                // The field must belong to this mesh (while bindings update, it can still be the previous increment's).
+                if (grainCut && FlowField is { } gr && ReferenceEquals(gr.Mesh, s.Mesh) && gr.X0.Length == s.NodeCount)
                 {
                     var b = Bounds3D;
                     double diag = Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);

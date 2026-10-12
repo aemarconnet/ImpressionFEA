@@ -58,6 +58,9 @@ public partial class App : Application
             "ImpressionFEA", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
+    /// <summary>Records a handled fault (e.g. a view that skipped one redraw) in the crash log without interrupting the user.</summary>
+    public static void LogError(Exception ex) => WriteCrash(ex);
+
     private static void WriteCrash(Exception? ex)
     {
         try
