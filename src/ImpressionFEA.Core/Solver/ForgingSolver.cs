@@ -1501,8 +1501,8 @@ public sealed class ForgingSolver : IForgingStepper
             EffectiveStrainRate = er,
             MeanStress = sm,
             Contact = (NodeContact[])_contact.Clone(),
-            VelocityX = initial ? [] : Enumerable.Range(0, _nn).Select(n => (float)GlobalVelocity(_v, n).X).ToArray(),
-            VelocityY = initial ? [] : Enumerable.Range(0, _nn).Select(n => (float)GlobalVelocity(_v, n).Y).ToArray(),
+            VelocityX = initial ? [] : Enumerable.Range(0, _nn).Select(n => (float)_vg[n].X).ToArray(),
+            VelocityY = initial ? [] : Enumerable.Range(0, _nn).Select(n => (float)_vg[n].Y).ToArray(),
         };
     }
 }

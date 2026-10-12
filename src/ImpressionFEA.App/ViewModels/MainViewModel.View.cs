@@ -2,6 +2,8 @@
 using System.Windows.Threading;
 using ImpressionFEA.App.Controls;
 using ImpressionFEA.App.Infrastructure;
+using ImpressionFEA.Core.Geometry;
+using ImpressionFEA.Core.Simulation;
 
 namespace ImpressionFEA.App.ViewModels;
 
@@ -88,6 +90,72 @@ public sealed partial class MainViewModel
 
     public double ArrowScale { get => _arrowScale; set => Set(ref _arrowScale, Math.Clamp(value, 0.1, 5)); }
 
+    // ---------------------------------------------------------------- grain flow lines (2D)
+
+    private bool _showFlowLines;
+    private FiberDirection _flowFiber = FiberDirection.Vertical;
+    private int _flowLineCount = 16;
+    private GrainFlowTracer? _flowTracer;
+
+    public IReadOnlyList<FiberDirection> FiberOptions { get; } = Enum.GetValues<FiberDirection>();
+
+    /// <summary>Overlay grain flow lines: material lines seeded along the billet fibre and carried through the forging.</summary>
+    public bool ShowFlowLines
+    {
+        get => _showFlowLines;
+        set
+        {
+            if (Set(ref _showFlowLines, value)) OnPropertyChanged(nameof(DisplayFlowLines));
+        }
+    }
+
+    /// <summary>Fibre direction of the bar stock in the starting billet.</summary>
+    public FiberDirection FlowFiber
+    {
+        get => _flowFiber;
+        set
+        {
+            if (Set(ref _flowFiber, value)) OnPropertyChanged(nameof(DisplayFlowLines));
+        }
+    }
+
+    /// <summary>Number of flow lines across the billet.</summary>
+    public int FlowLineCount
+    {
+        get => _flowLineCount;
+        set
+        {
+            if (Set(ref _flowLineCount, Math.Clamp(value, 4, 60))) OnPropertyChanged(nameof(DisplayFlowLines));
+        }
+    }
+
+    /// <summary>Flow lines of the shown 2D increment (traced on demand and cached for the run), or null.</summary>
+    public IReadOnlyList<Vec2[]>? DisplayFlowLines
+    {
+        get
+        {
+            if (!_showFlowLines || _currentSnapshot is not StepSnapshot || _scrubIndex < 0 || _scrubIndex >= _snapshots.Count) return null;
+            if (_flowTracer is null || _flowTracer.Direction != _flowFiber || _flowTracer.LineCount != _flowLineCount)
+                _flowTracer = new GrainFlowTracer(_flowFiber, _flowLineCount);
+            try
+            {
+                return _flowTracer.LinesAt(_snapshots, _scrubIndex);
+            }
+            catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException or InvalidOperationException)
+            {
+                _flowTracer = null; // a view overlay must never take the app down
+                return null;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- die edges (3D view)
+
+    private bool _showDieEdges;
+
+    /// <summary>Thin lines on the sharp edges of the die geometry (helps when shading is flat).</summary>
+    public bool ShowDieEdges { get => _showDieEdges; set => Set(ref _showDieEdges, value); }
+
     /// <summary>Restores the default view (bodies, transparency, cut-away, arrows, lighting).</summary>
     public ICommand ResetViewCommand => new RelayCommand(() =>
     {
@@ -104,7 +172,9 @@ public sealed partial class MainViewModel
         ArrowSpacing = 1.6;
         ArrowScale = 1;
         Lighting = ViewLighting.Shaded;
-        ShowEdges = ShowContact = ShowVelocity = false;
+        ShowEdges = ShowContact = ShowVelocity = ShowDieEdges = ShowFlowLines = false;
+        FlowFiber = FiberDirection.Vertical;
+        FlowLineCount = 16;
     });
 
     // ---------------------------------------------------------------- playback

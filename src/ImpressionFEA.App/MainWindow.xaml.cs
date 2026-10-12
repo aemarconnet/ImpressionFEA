@@ -243,7 +243,7 @@ public partial class MainWindow : Window
         if (sender is System.Windows.Controls.Button { ContextMenu: { } menu } b)
         {
             menu.PlacementTarget = b;
-            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top; // the button sits in the window's bottom-right corner
             menu.IsOpen = true;
         }
     }

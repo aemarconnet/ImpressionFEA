@@ -285,18 +285,6 @@
                                          IsEnabled="{Binding Analysis2D}" />
                             <RadioButton Content="3D solid" IsChecked="{Binding Is3D}" GroupName="ViewMode" VerticalAlignment="Center" Margin="10,0,0,0" />
                         </StackPanel>
-                        <Button DockPanel.Dock="Right" Content="Export ▾" Click="Export_Click" Style="{StaticResource FlatButton}" Padding="10,3" Margin="12,0,0,0"
-                                IsEnabled="{Binding HasResults}" ToolTip="Save an image, a video of the ram descent, the deformed part (STL / PLY) or a full report">
-                            <Button.ContextMenu>
-                                <ContextMenu>
-                                    <MenuItem Header="Save image (PNG)…" Click="SaveImage_Click" />
-                                    <MenuItem Header="Save video of the ram descent (WebM)…" Click="SaveVideo_Click" />
-                                    <MenuItem Header="Save deformed part (STL / PLY)…" Click="SaveSurface_Click" />
-                                    <Separator />
-                                    <MenuItem Header="Generate report (all outputs)…" Click="Report_Click" FontWeight="SemiBold" />
-                                </ContextMenu>
-                            </Button.ContextMenu>
-                        </Button>
                         <!-- View panel: every display setting in one live-updating popup -->
                         <ToggleButton x:Name="ViewToggle" DockPanel.Dock="Right" Content="View ▾" Padding="10,3" Margin="12,0,0,0"
                                       ToolTip="Bodies, transparency, lighting, cut-away, mesh edges, die contact and flow arrows (changes apply live)" />
@@ -367,6 +355,8 @@
                                         <CheckBox Content="Element edges (surface triangles of the tetrahedra)" IsChecked="{Binding ShowEdges}"
                                                   ToolTip="The 3D mesh is 4-node tetrahedra; on the surface you see their triangular faces, often four around a vertex (a pyramid pattern from the BCC lattice the mesher uses)" />
                                         <CheckBox Content="Die contact (amber bottom · magenta top)" IsChecked="{Binding ShowContact}" />
+                                        <CheckBox Content="Die edges (outline the die geometry)" IsChecked="{Binding ShowDieEdges}"
+                                                  ToolTip="Thin dark lines on the sharp edges of the dies (creases of the die geometry, cut faces), so the dies read even when the shading is flat or translucent" />
                                     </StackPanel>
 
                                     <!-- 2D section -->
@@ -375,6 +365,21 @@
                                         <CheckBox Content="Element mesh (4-node quadrilaterals)" IsChecked="{Binding ShowMesh}" />
                                         <CheckBox Content="Mirror about the axis" IsChecked="{Binding Mirror}" />
                                         <CheckBox Content="Die contact (amber bottom · magenta top)" IsChecked="{Binding ShowContact}" />
+
+                                        <TextBlock Text="Grain flow" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
+                                        <CheckBox Content="Grain flow lines (like an etched macro-section)" IsChecked="{Binding ShowFlowLines}"
+                                                  ToolTip="Material lines seeded along the fibre of the bar stock in the billet and carried through every increment with the metal flow. Look for lines following the part contour (good), folding over (laps) and running out through the flash (end grain exposed after trimming)." />
+                                        <DockPanel IsEnabled="{Binding ShowFlowLines}">
+                                            <TextBlock DockPanel.Dock="Left" Text="Fibre" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                            <ComboBox ItemsSource="{Binding FiberOptions}" SelectedItem="{Binding FlowFiber}"
+                                                      ToolTip="Fibre direction in the billet: Vertical = bar standing along the press axis (upsetting), Horizontal = bar lying across it" />
+                                        </DockPanel>
+                                        <DockPanel IsEnabled="{Binding ShowFlowLines}" Margin="0,4,0,0">
+                                            <TextBlock DockPanel.Dock="Left" Text="Lines" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                            <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding FlowLineCount}" VerticalAlignment="Center" />
+                                            <Slider Minimum="4" Maximum="60" Value="{Binding FlowLineCount}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                                    ToolTip="Number of flow lines across the billet" />
+                                        </DockPanel>
                                     </StackPanel>
 
                                     <!-- Flow arrows (both views) -->
@@ -403,10 +408,10 @@
                     <c:FieldViewport x:Name="View2D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}"
                                      Field="{Binding SelectedField.Field}" FieldTitle="{Binding FieldTitle}"
                                      RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
-                                     ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}" ShowVelocity="{Binding ShowVelocity}" Units="{Binding SelectedUnits}"
+                                     ShowMesh="{Binding ShowMesh}" Mirror="{Binding Mirror}" ShowContact="{Binding ShowContact}" ShowVelocity="{Binding ShowVelocity}" Units="{Binding SelectedUnits}" FlowLines="{Binding DisplayFlowLines}"
                                      ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}" ClipLow="{Binding ClipLow}" ClipHigh="{Binding ClipHigh}"
                                      ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is2D, Converter={StaticResource BoolToVis}}" />
-                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
+                    <c:SolidViewport3D x:Name="View3D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" ShowEdges="{Binding ShowEdges}" ShowDieEdges="{Binding ShowDieEdges}" Lighting="{Binding Lighting}" ShowVelocity="{Binding ShowVelocity}" ShowContact="{Binding ShowContact}" Units="{Binding SelectedUnits}"
                                        PartVisible="{Binding PartVisible}" PartOpacity="{Binding PartOpacity}" BottomDieVisible="{Binding BottomDieVisible}"
                                        TopDieVisible="{Binding TopDieVisible}" BottomDieOpacity="{Binding BottomDieOpacity}" TopDieOpacity="{Binding TopDieOpacity}" QuadView="{Binding QuadView}" CutAxis="{Binding CutAxis}" CutFlip="{Binding CutFlip}"
                                        CutOffset="{Binding CutOffset}" ArrowSpacing="{Binding ArrowSpacing}" ArrowScale="{Binding ArrowScale}"
@@ -614,6 +619,21 @@
                      FontFamily="{StaticResource Mono}" FontSize="11.5" Padding="8,6" VerticalScrollBarVisibility="Auto"
                      HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" IsUndoEnabled="False" />
         </Border>
+
+        <!-- Export, in the bottom-right corner of the window (over the log, clear of its scroll bars); the menu opens upwards -->
+        <Button Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,30,30" Content="Export ▾" Click="Export_Click"
+                Style="{StaticResource FlatButton}" Padding="12,4" IsEnabled="{Binding HasResults}"
+                ToolTip="Save an image, a video of the ram descent, the deformed part (STL / PLY) or a full report">
+            <Button.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Save image (PNG)…" Click="SaveImage_Click" />
+                    <MenuItem Header="Save video of the ram descent (WebM)…" Click="SaveVideo_Click" />
+                    <MenuItem Header="Save deformed part (STL / PLY)…" Click="SaveSurface_Click" />
+                    <Separator />
+                    <MenuItem Header="Generate report (all outputs)…" Click="Report_Click" FontWeight="SemiBold" />
+                </ContextMenu>
+            </Button.ContextMenu>
+        </Button>
         </Grid>
     </Grid>
 </Window>

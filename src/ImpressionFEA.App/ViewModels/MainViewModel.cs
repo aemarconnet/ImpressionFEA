@@ -570,6 +570,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         {
             if (!Set(ref _currentSnapshot, value)) return;
             OnPropertyChanged(nameof(DisplaySnapshot));
+            OnPropertyChanged(nameof(DisplayFlowLines));
             OnPropertyChanged(nameof(ShowFieldColors));
             OnPropertyChanged(nameof(FieldTitle));
             UpdateReadouts();

@@ -3,6 +3,17 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
+## Unreleased
+- **Grain flow lines** (2D section, View ▾ → Grain flow): material lines seeded along the fibre of the bar stock
+  (vertical or horizontal, 4–60 lines) and carried through every increment with the metal flow, like an etched
+  macro-section. Shows fibre following the contour, laps (lines folding over) and fibre running out through the flash.
+  Computed from the stored results, live during a run and during playback / video export.
+- **Die edges** (3D view, View ▾ → Display): thin dark lines on the sharp edges of the die geometry (and the cut-away
+  faces), so the dies read even when the shading is flat or translucent.
+- Iso-clip handles move in steps of 1/120 of the range (Shift: whole colour bands) and show their value.
+- **Export ▾** moved to the bottom-right corner of the window.
+- 2D results store the nodal velocity that moved the material in increments that remesh (it was saved as zero).
+
 ## 0.7.1
 - 2D folds at die fillets and in thin flash: when every cutback folds an element (the contact projection lays all
   nodes of a boundary element on the die), the update is accepted and the workpiece is remeshed on the new outline

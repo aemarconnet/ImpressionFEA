@@ -7,7 +7,8 @@ namespace ImpressionFEA.App.Controls;
 
 /// <summary>
 /// Vertical banded legend for the contour palette with iso-clipping: drag the top or bottom handle to set the visible
-/// range (elements outside it are hidden by the view); double-click resets to the full range.
+/// range (elements outside it are hidden by the view) in steps of 1/120 of the range (Shift: whole colour bands);
+/// double-click resets to the full range.
 /// </summary>
 public sealed class ColorBar : FrameworkElement
 {
@@ -35,7 +36,7 @@ public sealed class ColorBar : FrameworkElement
     public ColorBar()
     {
         Cursor = Cursors.SizeNS;
-        ToolTip = "Iso-clip: drag the top or bottom handle to hide elements outside a range · double-click to reset";
+        ToolTip = "Iso-clip: drag the top or bottom handle to hide elements outside a range (hold Shift to snap to colour bands) · double-click to reset";
     }
 
     public double RangeMin { get => (double)GetValue(RangeMinProperty); set => SetValue(RangeMinProperty, value); }
@@ -74,9 +75,10 @@ public sealed class ColorBar : FrameworkElement
             dc.DrawRectangle(brush, null, new Rect(r.Left, r.Bottom - (i + 1) * bandH, r.Width, bandH + 0.5));
         }
 
-        DrawClip(dc, r, ClipLow, ClipHigh);
-        dc.DrawRectangle(null, Outline, r);
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        double lo = RangeMin, span = RangeMax - RangeMin;
+        DrawClip(dc, r, ClipLow, ClipHigh, f => Formatter?.Invoke(lo + f * span) ?? ContourPalette.Format(lo + f * span), pixelsPerDip);
+        dc.DrawRectangle(null, Outline, r);
         for (int i = 0; i <= bands; i += 2)
         {
             double v = RangeMin + (RangeMax - RangeMin) * i / bands;
@@ -87,8 +89,33 @@ public sealed class ColorBar : FrameworkElement
         }
     }
 
-    /// <summary>Greys out the clipped ends of a bar and draws the two drag handles (shared with the 2D view's legend).</summary>
-    public static void DrawClip(DrawingContext dc, Rect r, double low, double high)
+    /// <summary>Clip handle resolution: ten steps per colour band, so band edges stay reachable exactly.</summary>
+    public const int ClipSteps = ContourPalette.Bands * 10;
+
+    private static readonly Brush LabelFill = Freeze(new SolidColorBrush(Color.FromArgb(0xE8, 0xFF, 0xFF, 0xFF)));
+    private static readonly Pen LabelPen = Freeze(new Pen(Handle, 1));
+
+    /// <summary>
+    /// New (low, high) after dragging <paramref name="handle"/> (1 low, 2 high) to fraction <paramref name="f"/>:
+    /// snapped to 1/<see cref="ClipSteps"/> of the range, or to whole colour bands with <paramref name="toBands"/>
+    /// (shared with the 2D view's legend). The handles never cross.
+    /// </summary>
+    public static (double Low, double High) Drag(int handle, double f, double low, double high, bool toBands)
+    {
+        int n = toBands ? ContourPalette.Bands : ClipSteps;
+        double snapped = Math.Round(Math.Clamp(f, 0, 1) * n) / n;
+        const double gap = 1.0 / ClipSteps;
+        return handle == 1 ? (Math.Min(snapped, high - gap), high) : (low, Math.Max(snapped, low + gap));
+    }
+
+    /// <summary>True while Shift is held: clip handles snap to whole colour bands.</summary>
+    public static bool SnapToBands => Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+
+    /// <summary>
+    /// Greys out the clipped ends of a bar and draws the two drag handles (shared with the 2D view's legend); a handle
+    /// moved off its end gets its value as a label left of the bar (<paramref name="label"/> maps a fraction to text).
+    /// </summary>
+    public static void DrawClip(DrawingContext dc, Rect r, double low, double high, Func<double, string>? label = null, double pixelsPerDip = 1)
     {
         double yLow = r.Bottom - low * r.Height, yHigh = r.Bottom - high * r.Height;
         if (low > 0) dc.DrawRectangle(Hidden, null, new Rect(r.Left, yLow, r.Width, r.Bottom - yLow));
@@ -106,6 +133,17 @@ public sealed class ColorBar : FrameworkElement
             tri.Freeze();
             dc.DrawGeometry(Handle, null, tri);
             dc.DrawLine(new Pen(Handle, 2), new Point(r.Left, y), new Point(r.Right, y));
+        }
+
+        if (label is null) return;
+        foreach (var (f, active) in new[] { (low, low > 0), (high, high < 1) })
+        {
+            if (!active) continue;
+            var ft = new FormattedText(label(f), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Mono, 10.5, Handle, pixelsPerDip);
+            double y = r.Bottom - f * r.Height;
+            var box = new Rect(r.Left - 10 - ft.Width - 6, y - ft.Height / 2 - 1, ft.Width + 6, ft.Height + 2);
+            dc.DrawRoundedRectangle(LabelFill, LabelPen, box, 2, 2);
+            dc.DrawText(ft, new Point(box.Left + 3, box.Top + 1));
         }
     }
 
@@ -148,11 +186,5 @@ public sealed class ColorBar : FrameworkElement
         if (e is not null) e.Handled = true;
     }
 
-    private void Apply(double f)
-    {
-        // Snap to band boundaries so the clip matches what the colours show.
-        double snapped = Math.Round(f * ContourPalette.Bands) / ContourPalette.Bands;
-        if (_dragging == 1) ClipLow = Math.Min(snapped, ClipHigh - 1.0 / ContourPalette.Bands);
-        else ClipHigh = Math.Max(snapped, ClipLow + 1.0 / ContourPalette.Bands);
-    }
+    private void Apply(double f) => (ClipLow, ClipHigh) = Drag(_dragging, f, ClipLow, ClipHigh, SnapToBands);
 }

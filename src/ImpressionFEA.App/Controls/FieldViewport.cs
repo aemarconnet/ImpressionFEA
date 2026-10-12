@@ -27,6 +27,10 @@ public sealed class FieldViewport : FrameworkElement
     public static readonly DependencyProperty ShowFieldProperty = Reg(nameof(ShowField), typeof(bool), true);
     public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false);
     public static readonly DependencyProperty ArrowSpacingProperty = Reg(nameof(ArrowSpacing), typeof(double), 1.6);
+    public static readonly DependencyProperty FlowLinesProperty = Reg(nameof(FlowLines), typeof(IReadOnlyList<Vec2[]>), null);
+
+    /// <summary>Grain flow lines of the shown increment (right half, mm); null = none.</summary>
+    public IReadOnlyList<Vec2[]>? FlowLines { get => (IReadOnlyList<Vec2[]>?)GetValue(FlowLinesProperty); set => SetValue(FlowLinesProperty, value); }
     public static readonly DependencyProperty ClipLowProperty = DependencyProperty.Register(nameof(ClipLow), typeof(double), typeof(FieldViewport),
         new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
     public static readonly DependencyProperty ClipHighProperty = DependencyProperty.Register(nameof(ClipHigh), typeof(double), typeof(FieldViewport),
@@ -86,12 +90,7 @@ public sealed class FieldViewport : FrameworkElement
         ReleaseMouseCapture();
     }
 
-    private void ApplyClip(double f)
-    {
-        double snapped = Math.Round(f * Bands) / Bands;
-        if (_clipDrag == 1) ClipLow = Math.Min(snapped, ClipHigh - 1.0 / Bands);
-        else ClipHigh = Math.Max(snapped, ClipLow + 1.0 / Bands);
-    }
+    private void ApplyClip(double f) => (ClipLow, ClipHigh) = ColorBar.Drag(_clipDrag, f, ClipLow, ClipHigh, ColorBar.SnapToBands);
     public static readonly DependencyProperty ArrowScaleProperty = Reg(nameof(ArrowScale), typeof(double), 1.0);
 
     /// <summary>Arrow spacing (1.6 = default density; smaller = denser).</summary>
@@ -318,6 +317,8 @@ public sealed class FieldViewport : FrameworkElement
             dc.DrawGeometry(null, MeshPen, geo);
         }
 
+        if (FlowLines is { Count: > 0 } flow) DrawFlowLines(dc, flow, P);
+
         dc.DrawGeometry(null, OutlinePen, outline);
 
         if (ShowContact)
@@ -335,6 +336,33 @@ public sealed class FieldViewport : FrameworkElement
                 }
             }
         }
+    }
+
+    private static readonly Pen FlowPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x14, 0x18, 0x1E))), 1.0) { LineJoin = PenLineJoin.Round });
+    private static readonly Pen FlowHalo = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF))), 2.6) { LineJoin = PenLineJoin.Round });
+
+    /// <summary>Grain flow lines as thin dark polylines with a light halo (readable on any contour colour), mirrored with the part.</summary>
+    private void DrawFlowLines(DrawingContext dc, IReadOnlyList<Vec2[]> lines, Func<double, double, Point> P)
+    {
+        var geo = new StreamGeometry();
+        using (var g = geo.Open())
+        {
+            foreach (double mirror in Mirror ? new[] { 1.0, -1.0 } : [1.0])
+            {
+                foreach (var line in lines)
+                {
+                    if (line.Length < 2) continue;
+                    g.BeginFigure(P(mirror * line[0].X, line[0].Y), false, false);
+                    var pts = new Point[line.Length - 1];
+                    for (int i = 1; i < line.Length; i++) pts[i - 1] = P(mirror * line[i].X, line[i].Y);
+                    g.PolyLineTo(pts, true, false);
+                }
+            }
+        }
+
+        geo.Freeze();
+        dc.DrawGeometry(null, FlowHalo, geo);
+        dc.DrawGeometry(null, FlowPen, geo);
     }
 
     private static readonly Pen BottomContactPen = Frozen(new Pen(BottomContact, 4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
@@ -379,7 +407,9 @@ public sealed class FieldViewport : FrameworkElement
             dc.DrawRectangle(brush, null, new Rect(r.Left, r.Bottom - (i + 1) * bandH, r.Width, bandH + 0.5));
         }
 
-        ColorBar.DrawClip(dc, r, ClipLow, ClipHigh);
+        double lo = RangeMin, span = RangeMax - RangeMin;
+        var field = Field;
+        ColorBar.DrawClip(dc, r, ClipLow, ClipHigh, f => ContourPalette.Label(lo + f * span, field), VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawRectangle(null, OutlinePen, r);
         for (int i = 0; i <= Bands; i += 2)
         {

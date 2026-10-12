@@ -30,6 +30,7 @@ public sealed class SolidViewport3D : Grid
     public static readonly DependencyProperty CutAwayProperty = Reg(nameof(CutAway), typeof(bool), false, false);
     public static readonly DependencyProperty ShowDiesProperty = Reg(nameof(ShowDies), typeof(bool), true, false);
     public static readonly DependencyProperty ShowEdgesProperty = Reg(nameof(ShowEdges), typeof(bool), false, false);
+    public static readonly DependencyProperty ShowDieEdgesProperty = Reg(nameof(ShowDieEdges), typeof(bool), false, false);
     public static readonly DependencyProperty ShowVelocityProperty = Reg(nameof(ShowVelocity), typeof(bool), false, false);
     public static readonly DependencyProperty ShowContactProperty = Reg(nameof(ShowContact), typeof(bool), false, false);
     public static readonly DependencyProperty UnitsProperty = Reg(nameof(Units), typeof(ImpressionFEA.App.Infrastructure.UnitSystem), ImpressionFEA.App.Infrastructure.UnitSystem.US, false);
@@ -68,6 +69,7 @@ public sealed class SolidViewport3D : Grid
     private readonly Material _fieldMaterial;
     private readonly Material _plainMaterial;
     private readonly Material _dieMaterial;
+    private readonly Material _dieEdgeMaterial;
 
     private Point3D _target;
     private double _distance = 200;
@@ -115,6 +117,7 @@ public sealed class SolidViewport3D : Grid
         _fieldMaterial = Frozen(new DiffuseMaterial(strip));
         _plainMaterial = Frozen(new MaterialGroup { Children = { new DiffuseMaterial(new SolidColorBrush(PlainColor)), new SpecularMaterial(new SolidColorBrush(Color.FromRgb(0x50, 0x50, 0x50)), 30) } });
         _dieMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(DieColor)));
+        _dieEdgeMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(0x1E, 0x24, 0x2C))));
 
         var lights = new Model3DGroup();
         lights.Children.Add(_ambient);
@@ -226,6 +229,9 @@ public sealed class SolidViewport3D : Grid
 
     /// <summary>Draw the element edges of the workpiece surface (and section).</summary>
     public bool ShowEdges { get => (bool)GetValue(ShowEdgesProperty); set => SetValue(ShowEdgesProperty, value); }
+
+    /// <summary>Thin dark lines on the sharp edges of the die geometry, so dies read even when shading is flat.</summary>
+    public bool ShowDieEdges { get => (bool)GetValue(ShowDieEdgesProperty); set => SetValue(ShowDieEdgesProperty, value); }
 
     private void ApplyLighting()
     {
@@ -695,6 +701,7 @@ public sealed class SolidViewport3D : Grid
             const double block = 10; // die block thickness behind the deepest impression point, mm
             double baseLow = die.Bottom.HeightRange(0, ext).Min - block;
             double baseHigh = die.TopClosed.HeightRange(0, ext).Max + gap + block;
+            var edgeSegs = new List<Point3D>();
             foreach (var (surf, off, bas) in new[] { (die.Bottom, 0.0, baseLow), (die.TopClosed, gap, baseHigh) })
             {
                 var prof = new List<Point>();
@@ -708,9 +715,16 @@ public sealed class SolidViewport3D : Grid
                 prof.Add(new Point(0, bas));
                 if (plane) ExtrudeProfile(dm, prof, PartLength);
                 else RevolveProfile(dm, prof, a0, a1, segs);
+                if (ShowDieEdges) ProfileEdges(edgeSegs, prof, plane, a0, a1, segs, PartLength);
             }
 
             dm.Freeze();
+            if (edgeSegs.Count > 0)
+            {
+                var b = dm.Bounds;
+                group.Children.Add(EdgeTubes(edgeSegs, 1.1e-3 * Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ), default, null));
+            }
+
             var dmodel = new GeometryModel3D(dm, _dieMaterial) { BackMaterial = _dieMaterial };
             dmodel.Freeze();
             group.Children.Add(dmodel); // translucent last
@@ -864,6 +878,14 @@ public sealed class SolidViewport3D : Grid
                 var dm = new MeshGeometry3D();
                 if (surf is HeightFieldDie hf) AddHeightField(dm, die, hf, off, keep);
                 else if (surf is TriMeshDie tm) AddSolid(dm, tm.Solid, off, keep, CutAway ? KeepPlane() : null);
+                if (ShowDieEdges)
+                {
+                    // Feature edges at offset 0 (cached per die), lifted with the die; model z = view Y, model y = −view Z.
+                    var b = Bounds3D;
+                    double r = 1.1e-3 * Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);
+                    group.Children.Add(EdgeTubes(DieFeatureEdges(die, surf), r, new Vector3D(0, off, 0), p => keep(p.X, -p.Z)));
+                }
+
                 dm.Freeze();
                 var dmodel = new GeometryModel3D(dm, dieMat) { BackMaterial = dieMat };
                 dmodel.Freeze();
@@ -1180,6 +1202,158 @@ public sealed class SolidViewport3D : Grid
     }
 
     // ------------------------------------------------------------------ dies
+
+    private static readonly ConditionalWeakTable<IRigidDie, Point3D[]> DieEdgeCache = new();
+
+    /// <summary>Sharp (feature) edges of an imported or height-field die at offset 0, view coordinates, as point pairs.</summary>
+    private static Point3D[] DieFeatureEdges(DieSet3D die, IRigidDie surf) => DieEdgeCache.GetValue(surf, s =>
+    {
+        var dm = new MeshGeometry3D();
+        if (s is HeightFieldDie hf) AddHeightField(dm, die, hf, 0, (_, _) => true);
+        else if (s is TriMeshDie tm) AddSolid(dm, tm.Solid, 0, (_, _) => true, null);
+        return FeatureEdges(dm, 30);
+    });
+
+    /// <summary>
+    /// Edges of a triangle mesh (vertices welded by position) where the faces meet at more than
+    /// <paramref name="angleDeg"/>, plus open boundaries: the creases of the original geometry, not the tessellation.
+    /// </summary>
+    private static Point3D[] FeatureEdges(MeshGeometry3D m, double angleDeg)
+    {
+        var pos = m.Positions;
+        var idx = m.TriangleIndices;
+        var b = m.Bounds;
+        double tol = Math.Max(1e-6 * Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ), 1e-9);
+        var weld = new Dictionary<(long, long, long), int>();
+        var wp = new List<Point3D>();
+        var id = new int[pos.Count];
+        for (int i = 0; i < pos.Count; i++)
+        {
+            var p = pos[i];
+            var key = ((long)Math.Round(p.X / tol), (long)Math.Round(p.Y / tol), (long)Math.Round(p.Z / tol));
+            if (!weld.TryGetValue(key, out int w))
+            {
+                w = wp.Count;
+                weld[key] = w;
+                wp.Add(p);
+            }
+
+            id[i] = w;
+        }
+
+        double cosLimit = Math.Cos(angleDeg * Math.PI / 180);
+        var edges = new Dictionary<(int, int), (Vector3D N, int Count, bool Sharp)>();
+        for (int k = 0; k + 2 < idx.Count; k += 3)
+        {
+            int a = id[idx[k]], c1 = id[idx[k + 1]], c2 = id[idx[k + 2]];
+            if (a == c1 || c1 == c2 || a == c2) continue;
+            var n = Vector3D.CrossProduct(wp[c1] - wp[a], wp[c2] - wp[a]);
+            if (n.LengthSquared == 0) continue;
+            n.Normalize();
+            foreach (var (u, v) in new[] { (a, c1), (c1, c2), (c2, a) })
+            {
+                var key = u < v ? (u, v) : (v, u);
+                if (edges.TryGetValue(key, out var e)) edges[key] = (e.N, e.Count + 1, e.Sharp || Vector3D.DotProduct(e.N, n) < cosLimit);
+                else edges[key] = (n, 1, false);
+            }
+        }
+
+        var segs = new List<Point3D>();
+        foreach (var (key, e) in edges)
+        {
+            if (e.Count == 2 && !e.Sharp) continue;
+            segs.Add(wp[key.Item1]);
+            segs.Add(wp[key.Item2]);
+        }
+
+        return [.. segs];
+    }
+
+    /// <summary>
+    /// Feature edges of a revolved (or mirrored and extruded) die profile, as point pairs: a circle (line) at every
+    /// profile corner turning more than 30°, and the profile itself on the open ends (cut-away faces, extrusion ends).
+    /// </summary>
+    private static void ProfileEdges(List<Point3D> segsOut, List<Point> prof, bool plane, double a0, double a1, int segs, double length)
+    {
+        var p = plane ? prof.Select(q => new Point(-q.X, q.Y)).Reverse().Concat(prof).ToList() : prof;
+        double cosLimit = Math.Cos(30 * Math.PI / 180);
+        bool open = !plane && a1 - a0 < 2 * Math.PI - 1e-9;
+        for (int k = 0; k < p.Count; k++)
+        {
+            bool corner = k == 0 || k == p.Count - 1;
+            if (!corner)
+            {
+                var d1 = p[k] - p[k - 1];
+                var d2 = p[k + 1] - p[k];
+                if (d1.Length > 1e-9 && d2.Length > 1e-9) corner = d1 * d2 / (d1.Length * d2.Length) < cosLimit;
+            }
+
+            if (!corner) continue;
+            if (plane)
+            {
+                segsOut.Add(new Point3D(p[k].X, p[k].Y, -length / 2));
+                segsOut.Add(new Point3D(p[k].X, p[k].Y, length / 2));
+            }
+            else if (p[k].X > 1e-9)
+            {
+                for (int j = 0; j < segs; j++)
+                {
+                    double t0 = a0 + (a1 - a0) * j / segs, t1 = a0 + (a1 - a0) * (j + 1) / segs;
+                    segsOut.Add(new Point3D(p[k].X * Math.Cos(t0), p[k].Y, p[k].X * Math.Sin(t0)));
+                    segsOut.Add(new Point3D(p[k].X * Math.Cos(t1), p[k].Y, p[k].X * Math.Sin(t1)));
+                }
+            }
+        }
+
+        // Profile outlines on the open ends.
+        var ends = plane ? new[] { -length / 2, length / 2 } : open ? new[] { a0, a1 } : [];
+        foreach (double at in ends)
+        {
+            for (int k = 0; k + 1 < p.Count; k++)
+            {
+                if (!plane && p[k].X < 1e-9 && p[k + 1].X < 1e-9) continue;
+                segsOut.Add(plane ? new Point3D(p[k].X, p[k].Y, at) : new Point3D(p[k].X * Math.Cos(at), p[k].Y, p[k].X * Math.Sin(at)));
+                segsOut.Add(plane ? new Point3D(p[k + 1].X, p[k + 1].Y, at) : new Point3D(p[k + 1].X * Math.Cos(at), p[k + 1].Y, p[k + 1].X * Math.Sin(at)));
+            }
+        }
+    }
+
+    /// <summary>Thin square tubes of radius <paramref name="r"/> along point-pair segments (WPF 3D has no lines).</summary>
+    private Model3D EdgeTubes(IReadOnlyList<Point3D> segs, double r, Vector3D shift, Func<Point3D, bool>? keep)
+    {
+        var g = new MeshGeometry3D();
+        for (int i = 0; i + 1 < segs.Count; i += 2)
+        {
+            var p = segs[i] + shift;
+            var q = segs[i + 1] + shift;
+            if (keep is not null && !keep(p + 0.5 * (q - p))) continue;
+            var d = q - p;
+            if (d.LengthSquared < 1e-24) continue;
+            d.Normalize();
+            var u = Vector3D.CrossProduct(d, Math.Abs(d.Y) < 0.9 ? new Vector3D(0, 1, 0) : new Vector3D(1, 0, 0));
+            u.Normalize();
+            var v = Vector3D.CrossProduct(d, u);
+            Vector3D[] c = [r * u, r * v, -r * u, -r * v];
+            int b0 = g.Positions.Count;
+            foreach (var o in c)
+            {
+                g.Positions.Add(p + o);
+                g.Positions.Add(q + o);
+            }
+
+            for (int k = 0; k < 4; k++)
+            {
+                int a = b0 + 2 * k, bb = b0 + 2 * ((k + 1) % 4);
+                AddTri(g, a, bb, a + 1);
+                AddTri(g, a + 1, bb, bb + 1);
+            }
+        }
+
+        g.Freeze();
+        var m = new GeometryModel3D(g, _dieEdgeMaterial) { BackMaterial = _dieEdgeMaterial };
+        m.Freeze();
+        return m;
+    }
 
     private static void AddHeightField(MeshGeometry3D dm, DieSet3D die, HeightFieldDie surf, double off, Func<double, double, bool> keep)
     {
