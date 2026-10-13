@@ -6,14 +6,16 @@
         xmlns:inf="clr-namespace:ImpressionFEA.App.Infrastructure"
         xmlns:oxy="http://oxyplot.org/wpf"
         Title="ImpressionFEA"
-        Width="1560" Height="940" MinWidth="1180" MinHeight="720"
+        Width="1560" Height="940" MinWidth="1100" MinHeight="680"
         Icon="pack://application:,,,/Assets/ImpressionFEA.ico"
-        Background="{StaticResource WindowBg}" WindowStartupLocation="CenterScreen">
+        Background="{StaticResource WindowBg}" WindowStartupLocation="CenterScreen"
+        AllowDrop="True" PreviewDragEnter="Window_DragEnter" PreviewDragOver="Window_DragOver" PreviewDragLeave="Window_DragLeave" PreviewDrop="Window_Drop">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <inf:InverseBooleanConverter x:Key="Not" />
         <inf:InverseBooleanToVisibilityConverter x:Key="NotBoolToVis" />
         <inf:NotNullToVisibilityConverter x:Key="NotNullToVis" />
+        <inf:ZeroToVisibilityConverter x:Key="ZeroToVis" />
         <Style x:Key="ReadLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Muted}" />
             <Setter Property="Margin" Value="0,3,8,3" />
@@ -25,10 +27,10 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="38" />
+            <RowDefinition Height="34" />
             <RowDefinition Height="*" MinHeight="360" />
             <RowDefinition Height="9" />
-            <RowDefinition Height="230" MinHeight="90" />
+            <RowDefinition x:Name="BottomRow" Height="170" MinHeight="44" />
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -41,10 +43,7 @@
                 <TextBlock DockPanel.Dock="Left" Text="Closed-die impression forging · rigid-viscoplastic FEM" Foreground="#9AA5B1"
                            Margin="14,0,0,0" VerticalAlignment="Center" />
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <TextBlock Text="Units" Foreground="#9AA5B1" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <ComboBox Width="86" ItemsSource="{Binding UnitOptions}" SelectedItem="{Binding SelectedUnits}"
-                              ToolTip="US: inches, ksi, tonf, °F (3 decimals) · Metric: mm, MPa, t, °C (2 decimals). The solver and CSV files always use mm, MPa, t, °C." />
-                    <TextBlock Margin="16,0,0,0" Foreground="#9AA5B1" FontFamily="{StaticResource Mono}" FontSize="11" Text="{Binding EngineName}" VerticalAlignment="Center" />
+                    <TextBlock Foreground="#9AA5B1" FontFamily="{StaticResource Mono}" FontSize="11" Text="{Binding EngineName}" VerticalAlignment="Center" />
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -52,23 +51,43 @@
         <!-- Main area -->
         <Grid Grid.Row="1" Margin="8,8,8,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="330" MinWidth="250" MaxWidth="640" />
+                <ColumnDefinition x:Name="LeftCol" Width="330" MinWidth="250" MaxWidth="640" />
                 <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="*" MinWidth="380" />
                 <ColumnDefinition Width="8" />
-                <ColumnDefinition Width="400" MinWidth="300" MaxWidth="900" />
+                <ColumnDefinition x:Name="RightCol" Width="390" MinWidth="300" MaxWidth="900" />
             </Grid.ColumnDefinitions>
             <!-- Drag handles between the panels -->
             <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeBehavior="PreviousAndNext"
-                          ResizeDirection="Columns" Background="Transparent" Cursor="SizeWE" ToolTip="Drag to resize" Style="{StaticResource Splitter}" />
+                          ResizeDirection="Columns" Background="Transparent" Cursor="SizeWE" Tag="Left" MouseDoubleClick="Splitter_DoubleClick" ToolTip="Drag to resize · double-click to collapse or expand the configuration panel" Style="{StaticResource Splitter}" />
             <GridSplitter Grid.Column="3" Width="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeBehavior="PreviousAndNext"
-                          ResizeDirection="Columns" Background="Transparent" Cursor="SizeWE" ToolTip="Drag to resize" Style="{StaticResource Splitter}" />
+                          ResizeDirection="Columns" Background="Transparent" Cursor="SizeWE" Tag="Right" MouseDoubleClick="Splitter_DoubleClick" ToolTip="Drag to resize · double-click to collapse or expand the telemetry panel" Style="{StaticResource Splitter}" />
 
             <!-- 1. Input / configuration -->
             <Border Style="{StaticResource Panel}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="CONFIGURATION" Style="{StaticResource PanelTitle}" />
+                    <!-- Title row with the display units (every input, read-out, chart and report follows them) -->
+                    <DockPanel DockPanel.Dock="Top">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,10,4">
+                            <TextBlock Text="Units" Foreground="{StaticResource Muted}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <ComboBox Width="86" ItemsSource="{Binding UnitOptions}" SelectedItem="{Binding SelectedUnits}"
+                                      ToolTip="US: inches, ksi, tonf, °F (3 decimals) · Metric: mm, MPa, t, °C (2 decimals). The solver and CSV files always use mm, MPa, t, °C." />
+                        </StackPanel>
+                        <TextBlock Text="CONFIGURATION" Style="{StaticResource PanelTitle}" />
+                    </DockPanel>
                     <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource PanelBorder}" />
+                    <!-- Editing a queue item: the panel holds its inputs until Update -->
+                    <Border DockPanel.Dock="Top" Margin="8,8,8,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Ok}" Background="#EEF7F0"
+                            Visibility="{Binding EditingItem, Converter={StaticResource NotNullToVis}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding EditingText}" TextWrapping="Wrap" FontSize="11.5" />
+                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                <Button Content="Update queue item" Command="{Binding UpdateQueueItemCommand}" Style="{StaticResource PrimaryButton}" Padding="10,3" />
+                                <Button Content="Done" Command="{Binding FinishEditingCommand}" Style="{StaticResource FlatButton}" Padding="10,3" Margin="6,0,0,0"
+                                        ToolTip="Stop editing the item (changes not yet updated stay in the panel only)" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                     <TabControl x:Name="ConfigTabs" Margin="4,6,4,4" BorderThickness="0,1,0,0" BorderBrush="{StaticResource PanelBorder}" Background="Transparent">
                         <!-- ============ BASIC ============ -->
                         <TabItem Header="Basic" Padding="14,4">
@@ -160,8 +179,23 @@
                                         <TextBlock Text="{Binding VolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <TextBlock Text="Material" Style="{StaticResource SectionHeader}" />
-                                        <ComboBox ItemsSource="{Binding Materials}" SelectedItem="{Binding SelectedMaterial}" />
-                                        <TextBlock Text="σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ, isothermal" Style="{StaticResource Note}" />
+                                        <ComboBox ItemsSource="{Binding MaterialsView}" SelectedItem="{Binding SelectedMaterial}" MaxDropDownHeight="420"
+                                                  ToolTip="{Binding SelectedMaterial.Description}">
+                                            <ComboBox.GroupStyle>
+                                                <GroupStyle>
+                                                    <GroupStyle.HeaderTemplate>
+                                                        <DataTemplate>
+                                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource Accent}" Margin="4,6,0,2" />
+                                                        </DataTemplate>
+                                                    </GroupStyle.HeaderTemplate>
+                                                </GroupStyle>
+                                            </ComboBox.GroupStyle>
+                                        </ComboBox>
+                                        <TextBlock Style="{StaticResource Note}" TextWrapping="Wrap">
+                                            <Run Text="σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ, isothermal ·" />
+                                            <Hyperlink Click="EditMaterials_Click" ToolTip="Add your own materials (flow-stress fits) in Documents\ImpressionFEA\materials.json"><Run Text="My materials…" /></Hyperlink>
+                                            <Hyperlink Command="{Binding ReloadMaterialsCommand}" ToolTip="Re-read materials.json"><Run Text="Reload" /></Hyperlink>
+                                        </TextBlock>
                                         <c:NumericField Label="Temperature T" Unit="{Binding TemperatureUnit}" Value="{Binding TemperatureU}" Quantity="Temperature" Minimum="{Binding SelectedMaterial.TMin}" Maximum="{Binding SelectedMaterial.TMax}" Format="F0" />
                                         <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Quantity="Plain" Minimum="0" Maximum="1" Format="F2"
                                                         ToolTip="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
@@ -278,19 +312,20 @@
                     </Grid.RowDefinitions>
                     <DockPanel Margin="10,5,10,5">
                         <TextBlock DockPanel.Dock="Left" Text="RESULTS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Muted}"
-                                   VerticalAlignment="Center" Margin="0,0,12,0" />
-                        <ComboBox DockPanel.Dock="Left" Width="230" ItemsSource="{Binding Fields}" SelectedItem="{Binding SelectedField}" />
-                        <ComboBox DockPanel.Dock="Left" Width="78" Margin="6,0,0,0" ItemsSource="{Binding AveragingOptions}" SelectedItem="{Binding Averaging}"
+                                   VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <!-- View panel: every display setting in one live-updating popup -->
+                        <ToggleButton x:Name="ViewToggle" DockPanel.Dock="Right" Content="View ▾" Padding="10,3" Margin="10,0,0,0"
+                                      ToolTip="Bodies, transparency, lighting, cut-away, mesh edges, die contact and flow arrows (changes apply live)" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="10,0,0,0">
+                            <RadioButton Content="2D" IsChecked="{Binding Is2D}" GroupName="ViewMode" VerticalAlignment="Center"
+                                         IsEnabled="{Binding Analysis2D}" ToolTip="2D section (2D analyses)" />
+                            <RadioButton Content="3D" IsChecked="{Binding Is3D}" GroupName="ViewMode" VerticalAlignment="Center" Margin="8,0,0,0"
+                                         ToolTip="3D solid (2D results are revolved or extruded)" />
+                        </StackPanel>
+                        <ComboBox DockPanel.Dock="Right" Width="76" Margin="6,0,0,0" ItemsSource="{Binding AveragingOptions}" SelectedItem="{Binding Averaging}"
                                   Visibility="{Binding IsGrainFlow, Converter={StaticResource NotBoolToVis}}"
                                   ToolTip="Nodal: element values averaged to the nodes (smooth contours). Element: each element in one flat colour from its own value (no averaging; shows jumps between elements)." />
-                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="12,0,0,0">
-                            <RadioButton Content="2D section" IsChecked="{Binding Is2D}" GroupName="ViewMode" VerticalAlignment="Center"
-                                         IsEnabled="{Binding Analysis2D}" />
-                            <RadioButton Content="3D solid" IsChecked="{Binding Is3D}" GroupName="ViewMode" VerticalAlignment="Center" Margin="10,0,0,0" />
-                        </StackPanel>
-                        <!-- View panel: every display setting in one live-updating popup -->
-                        <ToggleButton x:Name="ViewToggle" DockPanel.Dock="Right" Content="View ▾" Padding="10,3" Margin="12,0,0,0"
-                                      ToolTip="Bodies, transparency, lighting, cut-away, mesh edges, die contact and flow arrows (changes apply live)" />
+                        <ComboBox MinWidth="120" MaxWidth="260" HorizontalAlignment="Left" ItemsSource="{Binding Fields}" SelectedItem="{Binding SelectedField}" />
                         <Popup PlacementTarget="{Binding ElementName=ViewToggle}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
                                IsOpen="{Binding IsChecked, ElementName=ViewToggle}" PopupAnimation="Fade" HorizontalOffset="-250">
                             <Border Background="White" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Padding="12,8,12,12" Width="320" Margin="0,0,8,8">
@@ -347,17 +382,24 @@
                                             <CheckBox Content="Flip" IsChecked="{Binding CutFlip}" Margin="10,0,0,0" VerticalAlignment="Center" IsEnabled="{Binding CutAway}"
                                                       ToolTip="Remove the other side" />
                                         </DockPanel>
-                                        <DockPanel IsEnabled="{Binding CutAway}">
-                                            <TextBlock DockPanel.Dock="Left" Text="Offset" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
-                                            <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding CutOffset, StringFormat={}{0:P0}}" VerticalAlignment="Center" />
-                                            <Slider Minimum="-1" Maximum="1" Value="{Binding CutOffset}" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                                                    ToolTip="Section plane position, as a fraction of the half-width (0 = through the press axis)" />
-                                        </DockPanel>
+                                        <Border IsEnabled="{Binding IsRevolved2D, Converter={StaticResource Not}}">
+                                            <DockPanel IsEnabled="{Binding CutAway}">
+                                                <TextBlock DockPanel.Dock="Left" Text="Offset" Width="52" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                                <TextBlock DockPanel.Dock="Right" Width="40" TextAlignment="Right" Text="{Binding CutOffset, StringFormat={}{0:P0}}" VerticalAlignment="Center" />
+                                                <Slider Minimum="-1" Maximum="1" Value="{Binding CutOffset}" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                                        ToolTip="Section plane position, as a fraction of the half-width (0 = through the press axis)" />
+                                            </DockPanel>
+                                        </Border>
 
                                         <TextBlock Text="Display" Style="{StaticResource SectionHeader}" Margin="0,8,0,2" />
-                                        <CheckBox Content="Element edges (surface triangles of the tetrahedra)" IsChecked="{Binding ShowEdges}"
-                                                  ToolTip="The 3D mesh is 4-node tetrahedra; on the surface you see their triangular faces, often four around a vertex (a pyramid pattern from the BCC lattice the mesher uses)" />
-                                        <CheckBox Content="Die contact (amber bottom · magenta top)" IsChecked="{Binding ShowContact}" />
+                                        <StackPanel IsEnabled="{Binding IsRevolved2D, Converter={StaticResource Not}}">
+                                            <CheckBox Content="Element edges (surface triangles of the tetrahedra)" IsChecked="{Binding ShowEdges}"
+                                                      ToolTip="The 3D mesh is 4-node tetrahedra; on the surface you see their triangular faces, often four around a vertex (a pyramid pattern from the BCC lattice the mesher uses)" />
+                                            <CheckBox Content="Die contact (amber bottom · magenta top)" IsChecked="{Binding ShowContact}" />
+                                        </StackPanel>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,2,0,2"
+                                                   Visibility="{Binding IsRevolved2D, Converter={StaticResource BoolToVis}}"
+                                                   Text="2D result shown revolved (extruded for plane strain): the cut removes a 90° wedge (Y / X turn it, Flip reverses it). Element mesh, die contact and section offset are in the 2D view." />
                                         <CheckBox Content="Die edges (outline the die geometry)" IsChecked="{Binding ShowDieEdges}"
                                                   ToolTip="Thin dark lines on the sharp edges of the dies (creases of the die geometry, cut faces), so the dies read even when the shading is flat or translucent" />
                                     </StackPanel>
@@ -408,7 +450,6 @@
                                 </StackPanel>
                             </Border>
                         </Popup>
-                        <Border />
                     </DockPanel>
                     <Border Grid.Row="1" Background="{StaticResource PanelBorder}" />
                     <c:FieldViewport x:Name="View2D" Grid.Row="2" Snapshot="{Binding DisplaySnapshot}" Die="{Binding ActiveDie2D}"
@@ -432,8 +473,12 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <TextBlock Text="RAM DESCENT / STEP" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}" />
-                        <TextBlock HorizontalAlignment="Right" Text="{Binding ScrubText}" FontFamily="{StaticResource Mono}" FontSize="11" />
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="RAM DESCENT / STEP" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}"
+                                       VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <TextBlock Text="{Binding ScrubText}" FontFamily="{StaticResource Mono}" FontSize="11" TextAlignment="Right"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding ScrubText}" />
+                        </DockPanel>
                         <DockPanel Grid.Row="1" Margin="0,4,0,0">
                             <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                                 <StackPanel.Resources>
@@ -463,108 +508,294 @@
                 </Grid>
             </Border>
 
-            <!-- 4. Telemetry -->
+            <!-- 4. Telemetry: chart (can pop out), runs and queue, read-outs -->
             <Border x:Name="TelemetryPanel" Grid.Column="4" Style="{StaticResource Panel}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="TELEMETRY" Style="{StaticResource PanelTitle}" />
+                    <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" Click="PopOutChart_Click" Style="{StaticResource FlatButton}" Padding="7,2" Margin="0,4,8,4"
+                                ToolTip="Open the load / fill chart in its own resizable window (close it to dock it back)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="11" VerticalAlignment="Center" Margin="0,0,5,0" />
+                                <TextBlock x:Name="PopOutText" Text="Pop out chart" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Text="TELEMETRY" Style="{StaticResource PanelTitle}" />
+                    </DockPanel>
                     <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource PanelBorder}" />
-                    <Grid DockPanel.Dock="Bottom" Margin="12,8,12,12">
+
+                    <!-- Read-outs at the shown increment, two columns -->
+                    <Grid DockPanel.Dock="Bottom" Margin="12,6,12,8">
+                        <Grid.Resources>
+                            <Style x:Key="RL" TargetType="TextBlock" BasedOn="{StaticResource ReadLabel}">
+                                <Setter Property="Margin" Value="0,2,6,2" />
+                                <Setter Property="FontSize" Value="11.5" />
+                            </Style>
+                            <Style x:Key="RV" TargetType="TextBlock" BasedOn="{StaticResource ReadValue}">
+                                <Setter Property="Margin" Value="0,2,12,2" />
+                                <Setter Property="FontSize" Value="11.5" />
+                                <Setter Property="TextAlignment" Value="Right" />
+                                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                            </Style>
+                        </Grid.Resources>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="1.35*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
-                            <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="Ram stroke" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ReadStroke}" Style="{StaticResource ReadValue}" />
-                        <TextBlock Grid.Row="1" Text="Die gap to closure" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ReadGap}" Style="{StaticResource ReadValue}" />
-                        <TextBlock Grid.Row="2" Text="Press load" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ReadLoad}" Style="{StaticResource ReadValue}" FontWeight="Bold" />
-                        <TextBlock Grid.Row="3" Text="Peak load to this step" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ReadPeak}" Style="{StaticResource ReadValue}" />
-                        <TextBlock Grid.Row="4" Text="Cavity fill" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ReadFill}" Style="{StaticResource ReadValue}" FontWeight="Bold" />
-                        <TextBlock Grid.Row="5" Text="Max von Mises stress" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ReadVonMises}" Style="{StaticResource ReadValue}" />
-                        <TextBlock Grid.Row="6" Text="Max effective strain" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding ReadStrain}" Style="{StaticResource ReadValue}" />
-                        <TextBlock Grid.Row="7" Text="Volume change" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding ReadVolume}" Style="{StaticResource ReadValue}" />
-                        <TextBlock Grid.Row="8" Text="Mesh" Style="{StaticResource ReadLabel}" />
-                        <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding ReadMesh}" Style="{StaticResource ReadValue}" />
+                        <TextBlock Grid.Row="0" Text="Stroke" Style="{StaticResource RL}" ToolTip="Ram stroke from first contact" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ReadStroke}" Style="{StaticResource RV}" />
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="Gap" Style="{StaticResource RL}" ToolTip="Die gap to closure" />
+                        <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding ReadGap}" Style="{StaticResource RV}" Margin="0,2,0,2" />
+                        <TextBlock Grid.Row="1" Text="Load" Style="{StaticResource RL}" ToolTip="Press load" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ReadLoad}" Style="{StaticResource RV}" FontWeight="Bold" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="Peak" Style="{StaticResource RL}" ToolTip="Peak load up to this increment" />
+                        <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding ReadPeak}" Style="{StaticResource RV}" Margin="0,2,0,2" />
+                        <TextBlock Grid.Row="2" Text="Fill" Style="{StaticResource RL}" ToolTip="Cavity fill" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ReadFill}" Style="{StaticResource RV}" FontWeight="Bold" />
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="ΔV" Style="{StaticResource RL}" ToolTip="Volume change (numerical; the material is incompressible)" />
+                        <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding ReadVolume}" Style="{StaticResource RV}" Margin="0,2,0,2" />
+                        <TextBlock Grid.Row="3" Text="σ̄ max" Style="{StaticResource RL}" ToolTip="Maximum von Mises stress" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ReadVonMises}" Style="{StaticResource RV}" />
+                        <TextBlock Grid.Row="3" Grid.Column="2" Text="ε̄ max" Style="{StaticResource RL}" ToolTip="Maximum effective strain" />
+                        <TextBlock Grid.Row="3" Grid.Column="3" Text="{Binding ReadStrain}" Style="{StaticResource RV}" Margin="0,2,0,2" />
+                        <TextBlock Grid.Row="4" Text="Mesh" Style="{StaticResource RL}" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding ReadMesh}" Style="{StaticResource RV}" Margin="0,2,0,2" />
                     </Grid>
                     <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource PanelBorder}" />
+
                     <Grid>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="*" MinHeight="150" />
+                            <RowDefinition x:Name="ChartRow" Height="*" MinHeight="110" />
                             <RowDefinition Height="7" />
-                            <RowDefinition Height="200" MinHeight="90" />
+                            <RowDefinition x:Name="ListRow" Height="150" MinHeight="0" />
                         </Grid.RowDefinitions>
-                    <oxy:PlotView x:Name="LoadChart" Grid.Row="0" Model="{Binding LoadPlot}" Margin="4" Background="Transparent" />
+                        <oxy:PlotView x:Name="LoadChart" Grid.Row="0" Model="{Binding LoadPlot}" Margin="4" Background="Transparent"
+                                      />
+                        <!-- While the chart is in its own window -->
+                        <Border x:Name="ChartDockedNote" Grid.Row="0" Visibility="Collapsed" Margin="8,6" Padding="8,6" BorderThickness="1"
+                                BorderBrush="{StaticResource PanelBorder}" Background="{StaticResource SectionBg}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Dock back" Click="DockChart_Click" Style="{StaticResource FlatButton}" Padding="8,2" />
+                                <TextBlock Text="The chart is in its own window." Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                            </DockPanel>
+                        </Border>
                         <GridSplitter Grid.Row="1" Height="7" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"
-                                      ResizeBehavior="PreviousAndNext" Background="Transparent" Cursor="SizeNS" ToolTip="Drag to resize chart and run list" Style="{StaticResource Splitter}" />
-                    <!-- Run history: every finished run, overlaid on the chart when ticked -->
-                    <DockPanel Grid.Row="2" Margin="10,2,10,6">
-                        <DockPanel DockPanel.Dock="Top">
-                            <TextBlock Text="RUNS" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                <StackPanel.Resources>
-                                    <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                      ResizeBehavior="PreviousAndNext" Background="Transparent" Cursor="SizeNS" Tag="List" MouseDoubleClick="Splitter_DoubleClick"
+                                      ToolTip="Drag to resize chart and lists · double-click to give the chart all the room or bring the lists back" Style="{StaticResource Splitter}" />
+
+                        <!-- Runs (finished) and Queue (to run) -->
+                        <DockPanel Grid.Row="2" Margin="6,0,6,4">
+                            <TextBlock DockPanel.Dock="Top" Text="{Binding SweepText}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" FontSize="11"
+                                       Margin="4,0,0,2" TextTrimming="CharacterEllipsis" ToolTip="{Binding SweepText}"
+                                       Visibility="{Binding IsSweeping, Converter={StaticResource BoolToVis}}" />
+                            <TabControl x:Name="ListTabs" BorderThickness="0,1,0,0" BorderBrush="{StaticResource PanelBorder}" Background="Transparent" Padding="0,4,0,0">
+                                <TabControl.Resources>
+                                    <Style x:Key="ListBtn" TargetType="Button" BasedOn="{StaticResource FlatButton}">
                                         <Setter Property="Padding" Value="8,2" />
                                         <Setter Property="FontSize" Value="11" />
-                                        <Setter Property="Margin" Value="4,0,0,0" />
+                                        <Setter Property="Margin" Value="0,0,4,0" />
                                     </Style>
-                                </StackPanel.Resources>
-                                <Button Content="Multi-run…" Click="MultiRun_Click" IsEnabled="{Binding CanEdit}"
-                                        ToolTip="Run the current setup for several values of one parameter (temperature, friction, ram speed, …)" />
-                                <Button Content="Save CSV…" Click="SaveTelemetry_Click" IsEnabled="{Binding HasRuns}"
-                                        ToolTip="Save the selected run's telemetry (one row per increment) as CSV, plus its setup" />
-                                <Button Content="Save all…" Click="SaveAllTelemetry_Click" IsEnabled="{Binding HasRuns}"
-                                        ToolTip="Save every run's telemetry and a summary.csv into a folder" />
-                                <Button Content="Show/hide" Command="{Binding ShowAllRunsCommand}" ToolTip="Show or hide all overlays" />
-                                <Button Content="Reset" Command="{Binding ResetCommand}"
-                                        ToolTip="Start fresh: clear every run, the chart overlays, the current results and the log (setup inputs are kept)" />
-                            </StackPanel>
-                        </DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="{Binding SweepText}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" FontSize="11"
-                                   Margin="0,3,0,0" Visibility="{Binding IsSweeping, Converter={StaticResource BoolToVis}}" />
-                        <Grid>
-                            <ListBox ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRun}" Margin="0,4,0,0" BorderBrush="{StaticResource PanelBorder}"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
-                                     KeyDown="Runs_KeyDown">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <DockPanel ToolTip="{Binding Tip}" Background="Transparent">
-                                            <DockPanel.ContextMenu>
-                                                <ContextMenu>
-                                                    <MenuItem Header="Delete run" InputGestureText="Del" Click="DeleteRun_Click"
-                                                              ToolTip="Remove this run's telemetry, chart overlay and results" />
-                                                </ContextMenu>
-                                            </DockPanel.ContextMenu>
-                                            <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsShown}" VerticalAlignment="Center" ToolTip="Overlay on the chart" />
-                                            <Rectangle DockPanel.Dock="Left" Width="12" Height="3" Fill="{Binding Swatch}" Margin="2,0,6,0" VerticalAlignment="Center" />
-                                            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" FontFamily="{StaticResource Mono}" FontSize="10.5" Margin="6,0,0,0"
-                                                       VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" FontSize="11.5" VerticalAlignment="Center" />
+                                </TabControl.Resources>
+
+                                <!-- ============ RUNS ============ -->
+                                <TabItem Header="Runs" Padding="12,2">
+                                    <DockPanel>
+                                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                                            <Button DockPanel.Dock="Right" Content="⋯" Style="{StaticResource ListBtn}" Margin="0" Padding="10,2" Click="MenuButton_Click"
+                                                    ToolTip="More: save telemetry, show / hide overlays, reset">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="Save selected run's telemetry (CSV)…" Click="SaveTelemetry_Click" IsEnabled="{Binding HasRuns}" />
+                                                        <MenuItem Header="Save every run's telemetry (CSV + summary)…" Click="SaveAllTelemetry_Click" IsEnabled="{Binding HasRuns}" />
+                                                        <Separator />
+                                                        <MenuItem Header="Show / hide all overlays" Command="{Binding ShowAllRunsCommand}" />
+                                                        <Separator />
+                                                        <MenuItem Header="Reset: clear all runs, results and log" Command="{Binding ResetCommand}"
+                                                                  ToolTip="Start fresh for an unrelated job (setup inputs and the queue are kept)" />
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
+                                            </Button>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="Multi-run…" Click="MultiRun_Click" IsEnabled="{Binding CanEditQueue}" Style="{StaticResource ListBtn}"
+                                                        ToolTip="Run (or queue) the current setup for several values of one input: temperature, friction, ram speed, material, …" />
+                                                <Button Content="Compare…" Click="CompareReport_Click" IsEnabled="{Binding CanExport}" Style="{StaticResource ListBtn}"
+                                                        ToolTip="Comparison report: a comparison page of the chosen runs, then each run's own report" />
+                                            </StackPanel>
                                         </DockPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                            <TextBlock Text="Finished runs appear here. Tick a run to overlay its load and fill curves; use Multi-run to sweep temperature, friction or speed."
-                                       TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="11" Margin="10,14,10,0" IsHitTestVisible="False"
-                                       Visibility="{Binding HasRuns, Converter={StaticResource NotBoolToVis}}" />
-                        </Grid>
-                    </DockPanel>
+                                        <Grid>
+                                            <ListBox x:Name="RunsList" ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRun}" BorderBrush="{StaticResource PanelBorder}"
+                                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
+                                                     KeyDown="Runs_KeyDown">
+                                                <ListBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <DockPanel ToolTip="{Binding Tip}" Background="Transparent">
+                                                            <DockPanel.ContextMenu>
+                                                                <ContextMenu>
+                                                                    <MenuItem Header="Report of this run…" Click="RunReport_Click"
+                                                                              ToolTip="This run's report (with its full results when they are still kept)" />
+                                                                    <MenuItem Header="Add its setup to the queue" Click="RunToQueue_Click"
+                                                                              ToolTip="Queue this run's exact inputs again (e.g. to rerun it after editing)" />
+                                                                    <Separator />
+                                                                    <MenuItem Header="Delete run" InputGestureText="Del" Click="DeleteRun_Click"
+                                                                              ToolTip="Remove this run's telemetry, chart overlay and results" />
+                                                                </ContextMenu>
+                                                            </DockPanel.ContextMenu>
+                                                            <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsShown}" VerticalAlignment="Center" ToolTip="Overlay on the chart" />
+                                                            <Rectangle DockPanel.Dock="Left" Width="12" Height="3" Fill="{Binding Swatch}" Margin="2,0,6,0" VerticalAlignment="Center" />
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" FontFamily="{StaticResource Mono}" FontSize="10.5" Margin="6,0,0,0"
+                                                                       VerticalAlignment="Center" />
+                                                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" FontSize="11.5" VerticalAlignment="Center" />
+                                                        </DockPanel>
+                                                    </DataTemplate>
+                                                </ListBox.ItemTemplate>
+                                            </ListBox>
+                                            <TextBlock Text="Finished runs appear here. Tick a run to overlay its curves; double-click a curve on the chart to load that run. Multi-run sweeps one input; the Queue runs any set of setups."
+                                                       TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="11" Margin="10,12,10,0" IsHitTestVisible="False"
+                                                       Visibility="{Binding HasRuns, Converter={StaticResource NotBoolToVis}}" />
+                                        </Grid>
+                                    </DockPanel>
+                                </TabItem>
+
+                                <!-- ============ QUEUE ============ -->
+                                <TabItem Padding="12,2">
+                                    <!-- Pulses accent blue while items wait (or the queue runs) and the tab is not open, so the queue is noticed -->
+                                    <TabItem.Header>
+                                        <Grid>
+                                            <Border Margin="-10,-3" CornerRadius="3" Background="{StaticResource Accent}" Opacity="0" IsHitTestVisible="False">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Style.Triggers>
+                                                            <MultiDataTrigger>
+                                                                <MultiDataTrigger.Conditions>
+                                                                    <Condition Binding="{Binding QueueNeedsAttention}" Value="True" />
+                                                                    <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=TabItem}}" Value="False" />
+                                                                </MultiDataTrigger.Conditions>
+                                                                <MultiDataTrigger.EnterActions>
+                                                                    <BeginStoryboard x:Name="QueuePulse">
+                                                                        <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.08" To="0.55" Duration="0:0:0.9">
+                                                                                <DoubleAnimation.EasingFunction>
+                                                                                    <SineEase EasingMode="EaseInOut" />
+                                                                                </DoubleAnimation.EasingFunction>
+                                                                            </DoubleAnimation>
+                                                                        </Storyboard>
+                                                                    </BeginStoryboard>
+                                                                </MultiDataTrigger.EnterActions>
+                                                                <MultiDataTrigger.ExitActions>
+                                                                    <StopStoryboard BeginStoryboardName="QueuePulse" />
+                                                                </MultiDataTrigger.ExitActions>
+                                                            </MultiDataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
+                                            <TextBlock Text="{Binding QueueHeader}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding QueueNeedsAttention}" Value="True">
+                                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                                <Setter Property="Foreground" Value="{StaticResource AccentDark}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                    </TabItem.Header>
+                                    <DockPanel>
+                                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                                            <Button DockPanel.Dock="Right" Content="⋯" Style="{StaticResource ListBtn}" Margin="0" Padding="10,2" Click="MenuButton_Click"
+                                                    ToolTip="More: stop / skip, setup files, save or open a queue, clear">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="Stop after the current item" Command="{Binding StopQueueAfterCurrentCommand}" />
+                                                        <MenuItem Header="Skip the current item" Command="{Binding SkipQueueItemCommand}" />
+                                                        <Separator />
+                                                        <MenuItem Header="Add setup files…" Click="QueueAddSetups_Click" IsEnabled="{Binding CanEditQueue}"
+                                                                  ToolTip="Add saved setups (*.ifea.json) as queue items (or drop them on the window)" />
+                                                        <MenuItem Header="Open queue…" Click="QueueOpen_Click" IsEnabled="{Binding CanEditQueue}" />
+                                                        <MenuItem Header="Save queue as…" Click="QueueSave_Click" />
+                                                        <Separator />
+                                                        <MenuItem Header="Clear finished items" Command="{Binding ClearFinishedCommand}" />
+                                                        <MenuItem Header="Clear the queue" Command="{Binding ClearQueueCommand}" />
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
+                                            </Button>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="+ Add current setup" Command="{Binding AddToQueueCommand}" Style="{StaticResource ListBtn}"
+                                                        ToolTip="Add every current input as a queue item. Change anything (geometry, material, mesh, press, advanced) and add again." />
+                                                <Button Command="{Binding RunQueueCommand}" Style="{StaticResource ListBtn}" Background="{StaticResource Accent}" Foreground="White"
+                                                        BorderBrush="{StaticResource AccentDark}" ToolTip="Solve every pending item in order (Abort or Esc stops the queue)">
+                                                    <TextBlock Text="▶ Run queue" />
+                                                </Button>
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <TextBlock DockPanel.Dock="Top" Text="{Binding QueueSummary}" Foreground="{StaticResource Muted}" FontSize="11" Margin="2,0,0,3" />
+                                        <Grid>
+                                            <ListBox x:Name="QueueList" ItemsSource="{Binding Queue}" SelectedItem="{Binding SelectedQueueItem}" BorderBrush="{StaticResource PanelBorder}"
+                                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
+                                                     MouseDoubleClick="QueueList_DoubleClick" KeyDown="QueueList_KeyDown">
+                                                <ListBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <DockPanel ToolTip="{Binding Tip}" Background="Transparent" Margin="0,1">
+                                                            <DockPanel.ContextMenu>
+                                                                <ContextMenu>
+                                                                    <MenuItem Header="Load into the configuration (edit)" Click="QueueLoad_Click" FontWeight="SemiBold" />
+                                                                    <MenuItem Header="Show its results" Click="QueueShow_Click" />
+                                                                    <Separator />
+                                                                    <MenuItem Header="Duplicate" Click="QueueDuplicate_Click" />
+                                                                    <MenuItem Header="Move up" Click="QueueUp_Click" />
+                                                                    <MenuItem Header="Move down" Click="QueueDown_Click" />
+                                                                    <MenuItem Header="Run again (back to pending)" Click="QueueRequeue_Click" />
+                                                                    <Separator />
+                                                                    <MenuItem Header="Remove" InputGestureText="Del" Click="QueueRemove_Click" />
+                                                                </ContextMenu>
+                                                            </DockPanel.ContextMenu>
+                                                            <Ellipse x:Name="Dot" DockPanel.Dock="Left" Width="8" Height="8" Margin="2,0,6,0" VerticalAlignment="Center" Fill="{StaticResource Muted}" />
+                                                            <TextBlock DockPanel.Dock="Left" Text="{Binding Position, StringFormat=Q{0}}" FontWeight="SemiBold" FontSize="11" Width="26" VerticalAlignment="Center" />
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding StateText}" FontSize="10.5" Foreground="{StaticResource Muted}" Margin="6,0,2,0" VerticalAlignment="Center" />
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="11.5" />
+                                                                <TextBlock Text="{Binding Detail}" TextTrimming="CharacterEllipsis" FontSize="10.5" Foreground="{StaticResource Accent}" />
+                                                            </StackPanel>
+                                                        </DockPanel>
+                                                        <DataTemplate.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="{x:Static vm:QueueItemState.Running}">
+                                                                <Setter TargetName="Dot" Property="Fill" Value="{StaticResource Accent}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="{x:Static vm:QueueItemState.Done}">
+                                                                <Setter TargetName="Dot" Property="Fill" Value="{StaticResource Ok}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="{x:Static vm:QueueItemState.Failed}">
+                                                                <Setter TargetName="Dot" Property="Fill" Value="{StaticResource Danger}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="{x:Static vm:QueueItemState.Aborted}">
+                                                                <Setter TargetName="Dot" Property="Fill" Value="{StaticResource Warn}" />
+                                                            </DataTrigger>
+                                                        </DataTemplate.Triggers>
+                                                    </DataTemplate>
+                                                </ListBox.ItemTemplate>
+                                            </ListBox>
+                                            <TextBlock Text="Set up a simulation, press + Add current setup, change any input and add again (or drop setup files here, or queue a Multi-run). Then ▶ Run queue. Double-click an item to edit it."
+                                                       TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="11" Margin="10,12,10,0" IsHitTestVisible="False"
+                                                       Visibility="{Binding Queue.Count, Converter={StaticResource ZeroToVis}}" />
+                                        </Grid>
+                                    </DockPanel>
+                                </TabItem>
+                            </TabControl>
+                        </DockPanel>
                     </Grid>
                 </DockPanel>
             </Border>
         </Grid>
 
         <GridSplitter Grid.Row="2" Height="9" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
-                      Background="Transparent" Cursor="SizeNS" ToolTip="Drag to resize the solver log" Style="{StaticResource Splitter}" />
+                      Background="Transparent" Cursor="SizeNS" Tag="Bottom" MouseDoubleClick="Splitter_DoubleClick" ToolTip="Drag to resize · double-click to collapse or expand the solver log" Style="{StaticResource Splitter}" />
 
         <!-- Bottom block: the execution bar keeps its height; the log takes whatever the drag handle gives it. -->
         <Grid Grid.Row="3">
@@ -573,19 +804,35 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
         <!-- 2. Execution & status bar -->
-        <Border Grid.Row="0" Margin="8,0,8,0" Style="{StaticResource Panel}" Padding="8,6">
+        <Border x:Name="ExecBar" Grid.Row="0" Margin="8,0,8,0" Style="{StaticResource Panel}" Padding="8,6">
             <DockPanel LastChildFill="True">
                 <Button DockPanel.Dock="Left" Content="Solve FEA Simulation" Command="{Binding SolveCommand}" Style="{StaticResource PrimaryButton}" />
-                <Button DockPanel.Dock="Left" Content="Abort" Command="{Binding AbortCommand}" Style="{StaticResource FlatButton}" Margin="6,0,0,0" />
+                <Button DockPanel.Dock="Left" Content="Abort" Command="{Binding AbortCommand}" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
+                        ToolTip="Stop the simulation, multi-run or queue (Esc)" />
+                <Button DockPanel.Dock="Left" Content="+ Queue" Command="{Binding AddToQueueCommand}" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
+                        ToolTip="Add the current setup to the simulation queue (Telemetry ▸ Queue), change anything, add again, then Run queue" />
                 <Border DockPanel.Dock="Left" Width="1" Background="{StaticResource PanelBorder}" Margin="10,2" />
-                <Button DockPanel.Dock="Left" Content="Open setup…" Click="OpenSetup_Click" Style="{StaticResource FlatButton}" IsEnabled="{Binding CanEdit}"
-                        ToolTip="Open a saved setup (*.ifea.json): geometry or STEP file, material and every setting" />
-                <Button DockPanel.Dock="Left" Content="Save setup…" Click="SaveSetup_Click" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
-                        ToolTip="Save every input (including the STEP file path and top die) to reopen or rerun later" />
-                <Button DockPanel.Dock="Left" Content="Import STEP…" Click="ImportStep_Click" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
-                        IsEnabled="{Binding CanEdit}" ToolTip="Import a 3-body STEP assembly (bottom die, workpiece, top die)" />
-                <Button DockPanel.Dock="Left" Content="Re-import" Click="Reimport_Click" Style="{StaticResource FlatButton}" Margin="6,0,0,0"
-                        IsEnabled="{Binding CanReimport}" ToolTip="Re-read the STEP file if it changed, keeping every setting (Shift+click: re-import and solve)" />
+                <Button DockPanel.Dock="Left" Click="MenuButton_Click" Style="{StaticResource FlatButton}"
+                        ToolTip="Open / save setups, import or re-import STEP files (you can also drop .step and setup files on the window)">
+                    <TextBlock Text="File ▾" />
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Open setup…" Click="OpenSetup_Click" IsEnabled="{Binding CanEdit}"
+                                      ToolTip="Open a saved setup (*.ifea.json): geometry or STEP file, material and every setting" />
+                            <MenuItem Header="Save setup…" Click="SaveSetup_Click"
+                                      ToolTip="Save every input (including the STEP file path and top die) to reopen or rerun later" />
+                            <Separator />
+                            <MenuItem Header="Import STEP assembly…" Click="ImportStep_Click" IsEnabled="{Binding CanEdit}"
+                                      ToolTip="Import a 3-body STEP assembly (bottom die, workpiece, top die), or 2 dies and define the workpiece" />
+                            <MenuItem Header="Re-import STEP" Click="Reimport_Click" IsEnabled="{Binding CanReimport}"
+                                      ToolTip="Re-read the STEP file if it changed, keeping every setting" />
+                            <MenuItem Header="Re-import STEP and solve" Click="ReimportSolve_Click" IsEnabled="{Binding CanReimport}" />
+                            <Separator />
+                            <MenuItem Header="Add setup files to the queue…" Click="QueueAddSetups_Click" IsEnabled="{Binding CanEditQueue}" />
+                            <MenuItem Header="My materials (materials.json)…" Click="EditMaterials_Click" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
                 <Border DockPanel.Dock="Left" Width="1" Background="{StaticResource PanelBorder}" Margin="12,2" />
                 <Border x:Name="StateLamp" DockPanel.Dock="Left" Width="10" Height="10" VerticalAlignment="Center" Background="{StaticResource Muted}">
                     <Border.Style>
@@ -608,11 +855,34 @@
                     </Border.Style>
                 </Border>
                 <TextBlock DockPanel.Dock="Left" Text="{Binding State}" FontWeight="SemiBold" Margin="6,0,12,0" VerticalAlignment="Center" Width="74" />
+                <!-- Export: far right, mirroring Solve on the left. Outputs of the run shown, or a comparison report of several runs. -->
+                <Button DockPanel.Dock="Right" Click="Export_Click" Style="{StaticResource ExportButton}" Margin="14,0,0,0" IsEnabled="{Binding CanExport}"
+                        ToolTip="Reports (the run shown, or a comparison of several runs), image, video, deformed part (STL / PLY), telemetry">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Export results" VerticalAlignment="Center" />
+                        <TextBlock Text="▾" Margin="8,0,0,0" VerticalAlignment="Center" Opacity="0.85" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Report of the run shown…" Click="Report_Click" FontWeight="SemiBold" IsEnabled="{Binding HasResults}"
+                                      ToolTip="Every output of the results in the viewport: setup, key results, chart, all fields, telemetry, files" />
+                            <MenuItem Header="Comparison report of several runs…" Click="CompareReport_Click" FontWeight="SemiBold" IsEnabled="{Binding HasRuns}"
+                                      ToolTip="A comparison page (results table, overlaid curves, sweep chart, final shapes) followed by each run's own report" />
+                            <Separator />
+                            <MenuItem Header="Save image (PNG)…" Click="SaveImage_Click" IsEnabled="{Binding HasResults}" />
+                            <MenuItem Header="Save video of the ram descent (WebM)…" Click="SaveVideo_Click" IsEnabled="{Binding HasResults}" />
+                            <MenuItem Header="Save deformed part (STL / PLY)…" Click="SaveSurface_Click" IsEnabled="{Binding HasResults}" />
+                            <Separator />
+                            <MenuItem Header="Save telemetry of every run (CSV)…" Click="SaveAllTelemetry_Click" IsEnabled="{Binding HasRuns}" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
                 <TextBlock DockPanel.Dock="Right" Text="{Binding ElapsedText}" FontFamily="{StaticResource Mono}" FontSize="14"
                            VerticalAlignment="Center" Margin="12,0,4,0" ToolTip="Execution time" />
                 <TextBlock DockPanel.Dock="Right" Text="{Binding StepText}" FontFamily="{StaticResource Mono}" VerticalAlignment="Center"
-                           Margin="12,0,0,0" Width="130" TextAlignment="Right" />
-                <ProgressBar DockPanel.Dock="Right" Width="200" Height="10" Value="{Binding Progress, Mode=OneWay}" Maximum="100"
+                           Margin="10,0,0,0" Width="122" TextAlignment="Right" TextTrimming="CharacterEllipsis" />
+                <ProgressBar DockPanel.Dock="Right" Width="150" Height="10" Value="{Binding Progress, Mode=OneWay}" Maximum="100"
                              Foreground="{StaticResource Accent}" Background="{StaticResource SectionBg}" BorderBrush="{StaticResource PanelBorder}" />
                 <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            ToolTip="{Binding StatusText}" Margin="0,0,12,0" />
@@ -620,26 +890,24 @@
         </Border>
 
         <!-- Live solver log -->
-        <Border Grid.Row="1" Margin="8,6,8,8" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Background="{StaticResource LogBg}">
+        <Border x:Name="LogPanel" Grid.Row="1" Margin="8,6,8,8" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Background="{StaticResource LogBg}">
             <TextBox x:Name="LogBox" IsReadOnly="True" Background="Transparent" Foreground="{StaticResource LogText}" BorderThickness="0"
                      FontFamily="{StaticResource Mono}" FontSize="11.5" Padding="8,6" VerticalScrollBarVisibility="Auto"
                      HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" IsUndoEnabled="False" />
         </Border>
 
-        <!-- Export, in the bottom-right corner of the window (over the log, clear of its scroll bars); the menu opens upwards -->
-        <Button Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,30,30" Content="Export ▾" Click="Export_Click"
-                Style="{StaticResource FlatButton}" Padding="12,4" IsEnabled="{Binding HasResults}"
-                ToolTip="Save an image, a video of the ram descent, the deformed part (STL / PLY) or a full report">
-            <Button.ContextMenu>
-                <ContextMenu>
-                    <MenuItem Header="Save image (PNG)…" Click="SaveImage_Click" />
-                    <MenuItem Header="Save video of the ram descent (WebM)…" Click="SaveVideo_Click" />
-                    <MenuItem Header="Save deformed part (STL / PLY)…" Click="SaveSurface_Click" />
-                    <Separator />
-                    <MenuItem Header="Generate report (all outputs)…" Click="Report_Click" FontWeight="SemiBold" />
-                </ContextMenu>
-            </Button.ContextMenu>
-        </Button>
         </Grid>
+
+        <!-- Shown while files are dragged over the window -->
+        <Border x:Name="DropOverlay" Grid.RowSpan="4" Visibility="Collapsed" IsHitTestVisible="False" Background="#CC0B2340">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28,20" CornerRadius="6" BorderThickness="2"
+                    BorderBrush="White" Background="#330B5CAD">
+                <StackPanel>
+                    <TextBlock x:Name="DropTitle" Text="Drop to import" Foreground="White" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    <TextBlock x:Name="DropHint" Foreground="#DCE6F2" FontSize="13" Margin="0,6,0,0" HorizontalAlignment="Center" TextAlignment="Center"
+                               Text="STEP assembly (.step / .stp) · setup (.ifea.json) · several setups go to the queue · queue (.ifea-queue.json)" />
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </Window>

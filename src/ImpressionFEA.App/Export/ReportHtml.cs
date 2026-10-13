@@ -1,15 +1,26 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using ImpressionFEA.App.Infrastructure;
+using ImpressionFEA.App.ViewModels;
 using ImpressionFEA.Core.Simulation;
 
 namespace ImpressionFEA.App.Export;
 
-/// <summary>Self-contained HTML report (images embedded as data URIs; also saved beside it). Prints cleanly to PDF.</summary>
+/// <summary>
+/// Self-contained HTML reports, laid out to print compactly (about two pages per run). Figures are embedded at print
+/// resolution and link to the high-resolution PNG files saved beside the report. A single run's report, or a comparison
+/// report: a comparison page followed by each run's report, each run starting on a new page.
+/// </summary>
 public static partial class ReportHtml
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    /// <summary>Runs per comparison table (more are split into further tables so the columns stay readable).</summary>
+    private const int RunsPerTable = 6;
+
+    private static UnitSet U => Units.Current;
 
     private static string E(string? s) => WebUtility.HtmlEncode(s ?? "");
 
@@ -21,6 +32,9 @@ public static partial class ReportHtml
     [GeneratedRegex(@"auto-tune: .*|Linear solver: (?!Auto).*")]
     private static partial Regex SolverRx();
 
+    [GeneratedRegex(@"^#\d+\s*")]
+    private static partial Regex RunNumberRx();
+
     /// <summary>Modelling assumptions, stated at the top of every report (and in the README).</summary>
     public static readonly string[] Assumptions =
     [
@@ -31,165 +45,431 @@ public static partial class ReportHtml
         "Rigid dies: no die deflection, wear or temperature change; die geometry exactly as modelled / imported.",
         "Constant shear friction τ = m·k over the whole contact area.",
         "Quasi-static forming at constant ram speed: inertia and gravity are neglected.",
-        "Material data are representative handbook values, not certified for a specific heat or supplier.",
+        "Material data are fitted to published hot-flow tables (Altan, Ngaile & Shen, Cold and Hot Forging, ASM 2005) where the grade or a close grade is listed, otherwise representative values; each material states its source. Not certified for a specific heat or supplier.",
         "Press load and cavity fill are engineering estimates for design comparison, not certified predictions.",
     ];
 
-    public static string Build(ReportData r)
+    // ------------------------------------------------------------------ documents
+
+    /// <summary>One run's report; <paramref name="sessionRuns"/> (oldest first) adds the table of the session's runs.</summary>
+    public static string BuildSingle(RunReport r, IReadOnlyList<RunRecord> sessionRuns)
     {
         ArgumentNullException.ThrowIfNull(r);
-        var vm = r.Vm;
-        var u = ImpressionFEA.App.Infrastructure.Units.Current;
-        var run = vm.CurrentRun;
-        var settings = run?.Settings ?? vm.CaptureSettings();
-        var rows = run?.Rows ?? vm.Snapshots.Select(TelemetryRow.From).ToList();
-        var peak = rows.OrderByDescending(x => x.LoadTonnes).First();
-        var last = rows[^1];
-        string log = vm.RunLog;
-        int remeshes = RemeshRx().Matches(log).Count;
-        string solver = SolverRx().Matches(log).Select(m => m.Value).LastOrDefault() ?? settings.LinearBackend;
+        var h = new StringBuilder();
+        Head(h, "ImpressionFEA report – " + r.Geometry);
+        string title = r.Run is { } run ? "Run " + run.Number.ToString(Inv) + " — " + RunNumberRx().Replace(run.Label, "") : r.Geometry;
+        TitleBlock(h, "Forging simulation report", title, r.Geometry + " · " + r.Settings.Material + " · " + U.Tf(r.Settings.Temperature), r.Run);
+        Kpis(h, r);
+        AssumptionsBox(h);
+        Body(h, r, "h2", "");
+        if (sessionRuns.Count > 1) SessionRuns(h, sessionRuns);
+        FileList(h, r.Files, "", "h2");
+        Footer(h);
+        return h.ToString();
+    }
+
+    /// <summary>Comparison page of several runs, then each run's report in turn (each starting on a new page).</summary>
+    public static string BuildComparison(ComparisonReport c)
+    {
+        ArgumentNullException.ThrowIfNull(c);
+        var u = U;
+        var runs = c.Runs;
+        var (common, varied) = RunComparison.Split(runs.Select(r => r.Settings));
+        string geometry = string.Join(" / ", runs.Select(r => r.Geometry).Distinct());
 
         var h = new StringBuilder();
-        h.Append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
-        h.Append("<title>ImpressionFEA report – ").Append(E(vm.GeometryName)).Append("</title><style>").Append(Css).Append("</style></head><body>");
+        Head(h, "ImpressionFEA comparison – " + geometry);
+        TitleBlock(h, "Forging simulation – run comparison", geometry,
+            F($"{runs.Count} runs") + (varied.Count > 0 ? " · varied: " + string.Join(", ", varied.Select(p => p.Name.ToLowerInvariant())) : " · identical inputs"), null);
 
-        // Header
-        h.Append("<header><div><h1>Forging simulation report</h1><p class=\"sub\">").Append(E(vm.GeometryName)).Append(" · ")
-         .Append(E(settings.Material)).Append(F($" · {settings.Temperature:F0} °C")).Append("</p></div><div class=\"meta\">ImpressionFEA ")
-         .Append(E(AppVersion.Display)).Append("<br>").Append(E(DateTime.Now.ToString("yyyy-MM-dd HH:mm", Inv))).Append("</div></header>");
+        // Contents (on screen; the run columns of the results table identify the runs on paper)
+        h.Append("<nav class=\"toc screen\"><b>Contents</b><ol><li><a href=\"#compare\">Comparison</a></li>");
+        foreach (var r in runs)
+        {
+            var run = r.Run!;
+            h.Append("<li><a href=\"#").Append(r.Anchor).Append("\">").Append(Swatch(run)).Append("Run ").Append(run.Number.ToString(Inv)).Append("</a> <span class=\"muted\">")
+             .Append(E(RunComparison.Distinction(run, varied))).Append("</span> ").Append(Pill(run)).Append("</li>");
+        }
 
-        // Key results
-        h.Append("<section class=\"cards\">");
-        Card(h, "Peak press load", u.Loadf(peak.LoadTonnes), (u.System == ImpressionFEA.App.Infrastructure.UnitSystem.US ? F($"{peak.LoadTonnes * 9806.65 / 4448.2216:F0} kip") : F($"{peak.LoadTonnes * 9.80665:F0} kN")) + " at " + u.Lf(peak.Stroke));
-        Card(h, "Final cavity fill", F($"{last.FillPercent:F1} %"), "after " + u.Lf(last.Stroke) + " stroke");
-        Card(h, "Volume change", F($"{last.VolumeChangePercent:+0.00;-0.00;0.00} %"), "numerical (incompressible material)");
-        Card(h, "Max effective strain", F($"{rows.Max(x => x.MaxEffectiveStrain):F2}"), "max von Mises " + u.Sf(rows.Max(x => x.MaxVonMises)));
-        Card(h, "Status", E(run?.StatusText ?? "—"), F($"{rows.Count - 1} increments · {remeshes} remeshes · {(run?.Elapsed.TotalSeconds ?? 0):F1} s"));
+        h.Append("</ol></nav>");
+
+        // Comparison page
+        h.Append("<section id=\"compare\">");
+        var peakRun = runs.MinBy(r => r.Run!.PeakLoad)!.Run!;
+        var fillRun = runs.MaxBy(r => r.Run!.FinalFill)!.Run!;
+        int over = runs.Count(r => r.Run!.PeakLoad > r.Settings.PressCapacity);
+        int completed = runs.Count(r => r.Run!.Status == SimulationStatus.Completed);
+        h.Append("<div class=\"kpis\">");
+        Kpi(h, "Runs compared", runs.Count.ToString(Inv), F($"{completed} reached die closure"));
+        Kpi(h, "Lowest peak load", E(u.Loadf(peakRun.PeakLoad)), "Run " + peakRun.Number.ToString(Inv));
+        Kpi(h, "Highest final fill", F($"{fillRun.FinalFill:F1} %"), "Run " + fillRun.Number.ToString(Inv));
+        Kpi(h, "Press capacity", over == 0 ? "not exceeded" : F($"{over} run{(over == 1 ? "" : "s")} over"),
+            c.Capacity > 0 ? u.Loadf(c.Capacity) : "differs between runs", over > 0 ? "bad" : "");
+        h.Append("</div>");
+        AssumptionsBox(h);
+
+        h.Append("<h2>Results</h2>");
+        for (int i = 0; i < runs.Count; i += RunsPerTable) CompareTable(h, runs.Skip(i).Take(RunsPerTable).ToList(), varied);
+        h.Append("<p class=\"note\">Green: best among the runs that reached die closure. Red ▲: above the press capacity. Die positions are measured from closure (0 = dies closed).</p>");
+
+        h.Append("<h2>Load and cavity fill</h2><div class=\"grid2\">");
+        Img(h, c.LoadChart, "Press load of each run against the die position from closure", "");
+        Img(h, c.FillChart, "Cavity fill of each run against the die position from closure", "");
+        if (c.SweepParameter is { } sp) Img(h, c.SweepChart, "Peak press load and final cavity fill against " + sp.ToLowerInvariant(), "");
+        h.Append("</div>");
+
+        var shapes = runs.Where(r => !string.IsNullOrEmpty(r.Shape.Base64)).ToList();
+        if (shapes.Count > 0)
+        {
+            h.Append("<h2>Final shape at die closure — ").Append(E(c.Field)).Append("</h2><div class=\"grid").Append(Math.Min(4, Math.Max(2, shapes.Count))).Append("\">");
+            foreach (var r in shapes) Img(h, r.Shape, "Run " + r.Run!.Number.ToString(Inv) + " · " + RunComparison.Distinction(r.Run, varied), r.LinkPrefix);
+            h.Append("</div><p class=\"note\">Each run on its own colour scale; the run pages show the scales and every other field.</p>");
+        }
+
+        h.Append("<h2>Inputs shared by every run</h2>");
+        KvColumns(h, common.Select(p => (p.Name, p.Show(runs[0].Settings))).ToList());
+        FileList(h, c.Files, "", "h2");
         h.Append("</section>");
 
-        // Assumptions
-        h.Append("<section class=\"assume\"><h2>Assumptions</h2><ul>");
+        // Each run in turn
+        foreach (var r in runs)
+        {
+            var run = r.Run!;
+            h.Append("<section class=\"run\" id=\"").Append(r.Anchor).Append("\" style=\"--run:").Append(Hex(run)).Append("\">")
+             .Append("<div class=\"runhead\"><div><div class=\"eyebrow\">Run ").Append(run.Number.ToString(Inv)).Append(" of the comparison</div><h2>")
+             .Append(Swatch(run)).Append("Run ").Append(run.Number.ToString(Inv)).Append(" <span class=\"muted\">— ").Append(E(RunComparison.Distinction(run, varied))).Append("</span></h2>")
+             .Append("<div class=\"muted small\">").Append(E(RunNumberRx().Replace(run.Label, ""))).Append("</div></div><div class=\"right\">").Append(Pill(run))
+             .Append("<a class=\"screen\" href=\"#top\">↑ Contents</a></div></div>");
+            Kpis(h, r);
+            Body(h, r, "h3", r.LinkPrefix);
+            FileList(h, r.Files, r.LinkPrefix, "h3");
+            if (r.Fields.Count > 0) h.Append("<p class=\"note screen\">Standalone report of this run: <a href=\"").Append(E(r.LinkPrefix)).Append("report.html\">").Append(E(r.LinkPrefix)).Append("report.html</a></p>");
+            h.Append("</section>");
+        }
+
+        Footer(h);
+        return h.ToString();
+    }
+
+    // ------------------------------------------------------------------ parts
+
+    private static void Head(StringBuilder h, string title)
+    {
+        h.Append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+        h.Append("<title>").Append(E(title)).Append("</title><style>").Append(Css).Append("</style></head><body>");
+    }
+
+    private static void TitleBlock(StringBuilder h, string kind, string title, string sub, RunRecord? run)
+    {
+        h.Append("<header id=\"top\"><div><div class=\"eyebrow\">").Append(E(kind)).Append("</div><h1>").Append(run is not null ? Swatch(run) : "").Append(E(title))
+         .Append("</h1><div class=\"sub\">").Append(E(sub)).Append("</div></div><div class=\"meta\">ImpressionFEA ").Append(E(AppVersion.Display)).Append("<br>")
+         .Append(E(DateTime.Now.ToString("yyyy-MM-dd HH:mm", Inv))).Append("<br>Units: ").Append(U.System == UnitSystem.US ? "in · ksi · tonf · °F" : "mm · MPa · t · °C").Append("</div></header>");
+    }
+
+    private static void Footer(StringBuilder h)
+    {
+        h.Append("<footer>Generated by ImpressionFEA ").Append(E(AppVersion.Display))
+         .Append(" · © 2026 Marconnet Technologies LLC · CC BY-NC 4.0 · Loads and fill are engineering estimates for design comparison, not certified predictions.</footer>");
+        h.Append("</body></html>");
+    }
+
+    private static void AssumptionsBox(StringBuilder h)
+    {
+        h.Append("<details class=\"assume\" open><summary>Modelling assumptions</summary><ul>");
         foreach (var a in Assumptions) h.Append("<li>").Append(E(a)).Append("</li>");
-        h.Append("</ul><p class=\"note\">Units: ").Append(E(u.System == ImpressionFEA.App.Infrastructure.UnitSystem.US ? "US customary (in, ksi, tonf, °F)" : "metric (mm, MPa, t, °C)"))
-         .Append(". CSV files are always in mm, MPa, t and °C.</p></section>");
+        h.Append("</ul><div class=\"note\">CSV files are always in mm, MPa, t and °C.</div></details>");
+    }
+
+    private static void Kpis(StringBuilder h, RunReport r)
+    {
+        var u = U;
+        var rows = r.Rows;
+        var peak = rows.MaxBy(x => x.LoadTonnes)!;
+        var last = rows[^1];
+        int remeshes = RemeshRx().Matches(r.Log).Count;
+        bool over = peak.LoadTonnes > r.Settings.PressCapacity;
+        h.Append("<div class=\"kpis\">");
+        Kpi(h, "Peak press load", E(u.Loadf(peak.LoadTonnes)),
+            (u.System == UnitSystem.US ? F($"{peak.LoadTonnes * 9806.65 / 4448.2216:F0} kip") : F($"{peak.LoadTonnes * 9.80665:F0} kN")) + " · " + u.Lf(peak.DieGap) + " before closure"
+            + (over ? " · above capacity" : ""), over ? "bad" : "");
+        Kpi(h, "Final cavity fill", F($"{last.FillPercent:F1} %"), "gap " + u.Lf(last.DieGap) + " at the end");
+        Kpi(h, "Volume change", F($"{last.VolumeChangePercent:+0.00;-0.00;0.00} %"), "numerical");
+        Kpi(h, "Max eff. strain", F($"{rows.Max(x => x.MaxEffectiveStrain):F2}"), "σ̄ max " + u.Sf(rows.Max(x => x.MaxVonMises)));
+        Kpi(h, "Status", E(r.Run?.StatusText ?? "—"),
+            F($"{rows.Count - 1} increments · ") + (r.Log.Length > 0 ? F($"{remeshes} remeshes · ") : "") + F($"{(r.Run?.Elapsed.TotalSeconds ?? 0):F1} s"));
+        h.Append("</div>");
+    }
+
+    /// <summary>Setup, chart, telemetry, fields, stages, part and video of a run; links are prefixed with <paramref name="prefix"/>.</summary>
+    private static void Body(StringBuilder h, RunReport r, string hx, string prefix)
+    {
+        var u = U;
+        var settings = r.Settings;
+        var rows = r.Rows;
+        var peak = rows.MaxBy(x => x.LoadTonnes)!;
+        string solver = SolverRx().Matches(r.Log).Select(m => m.Value).LastOrDefault() ?? settings.LinearBackend;
 
         // Setup
-        h.Append("<section><h2>Setup</h2><div class=\"cols\"><table class=\"kv\">");
-        Kv(h, "Analysis", settings.Analysis == "2D" ? (vm.IsPlaneStrainResult ? "2D plane strain" : "2D axisymmetric") : "3D (" + vm.ResultSymmetry + " model)");
-        Kv(h, "Geometry", settings.StepFile is { } sf ? "STEP: " + System.IO.Path.GetFileName(sf) + F($" (top die body {settings.TopDieBody})") : settings.Preset ?? "");
-        Kv(h, "Description", vm.DieDescriptionText);
-        if (settings.BilletRadius is { } br) Kv(h, "Billet", "R " + u.Lf(br) + ", H " + u.Lf(settings.BilletHeight ?? 0) + ", L " + u.Lf(settings.BilletLength ?? 0));
-        Kv(h, "Material", settings.Material);
-        Kv(h, "Flow stress", vm.MaterialSummary);
-        Kv(h, "Temperature", u.Tf(settings.Temperature) + " (isothermal)");
-        Kv(h, "Friction", F($"m = {settings.Friction:F2} (constant shear)"));
-        h.Append("</table><table class=\"kv\">");
-        Kv(h, "Ram speed", u.Speedf(settings.RamSpeed));
-        Kv(h, "Element size h", u.L(settings.ElementSize).ToString(u.FineLengthFormat, Inv) + " " + u.Length);
-        Kv(h, "Stroke increment", u.L(settings.StrokeIncrement).ToString(u.FineLengthFormat, Inv) + " " + u.Length + (settings.AutoStep ? " (auto time-stepping)" : ""));
-        Kv(h, "Robustness", F($"≤ {settings.MaxCutbacks} cutbacks, refinement {settings.RefinementLevels} level(s){(settings.RefineThinFlash ? " + thin flash" : "")}, remesh below q {settings.RemeshQuality:F2}"));
-        Kv(h, "Convergence", F($"|Δv|/|v| < {settings.Tolerance:0.0E+0}, ≤ {settings.MaxIterations} iterations"));
-        Kv(h, "Linear solver", solver);
-        Kv(h, "Press capacity", u.Loadf(settings.PressCapacity) + (peak.LoadTonnes > settings.PressCapacity ? " — EXCEEDED" : ""));
-        h.Append("</table></div></section>");
+        H(h, hx, "Setup");
+        var kv = new List<(string, string)>
+        {
+            ("Analysis", r.Analysis),
+            ("Geometry", settings.StepFile is { } sf ? "STEP: " + System.IO.Path.GetFileName(sf) + F($" (top die body {settings.TopDieBody})") : settings.Preset ?? ""),
+        };
+        if (!string.IsNullOrWhiteSpace(r.Description)) kv.Add(("Description", r.Description));
+        if (settings.Workpiece is not null || settings.BilletRadius is not null) kv.Add(("Workpiece", RunComparison.Parameters.First(p => p.Name == "Workpiece").Show(settings)));
+        kv.Add(("Material", settings.Material));
+        kv.Add(("Flow stress", r.MaterialSummary));
+        if (r.MaterialSource.Length > 0) kv.Add(("Material data", r.MaterialSource));
+        kv.Add(("Temperature", u.Tf(settings.Temperature) + " (isothermal)"));
+        kv.Add(("Friction", F($"m = {settings.Friction:F2} (constant shear)")));
+        kv.Add(("Ram speed", u.Speedf(settings.RamSpeed)));
+        kv.Add(("Element size h", u.L(settings.ElementSize).ToString(u.FineLengthFormat, Inv) + " " + u.Length));
+        kv.Add(("Stroke increment", u.L(settings.StrokeIncrement).ToString(u.FineLengthFormat, Inv) + " " + u.Length + (settings.AutoStep ? " (auto time-stepping)" : "")));
+        kv.Add(("Robustness", F($"≤ {settings.MaxCutbacks} cutbacks, refinement {settings.RefinementLevels}{(settings.RefineThinFlash ? " + thin flash" : "")}, remesh below q {settings.RemeshQuality:F2}")));
+        kv.Add(("Convergence", F($"|Δv|/|v| < {settings.Tolerance:0.0E+0}, ≤ {settings.MaxIterations} iterations")));
+        kv.Add(("Linear solver", solver));
+        kv.Add(("Press capacity", u.Loadf(settings.PressCapacity) + (peak.LoadTonnes > settings.PressCapacity ? " — EXCEEDED" : "")));
+        KvColumns(h, kv);
 
-        // Telemetry chart
-        h.Append("<section><h2>Load and cavity fill</h2>");
-        Img(h, r.Chart, "Press load (solid) and cavity fill (dashed) against ram stroke");
-        h.Append("</section>");
+        // Chart and condensed telemetry side by side
+        H(h, hx, "Load, cavity fill and telemetry");
+        h.Append("<div class=\"split\">");
+        Img(h, r.Chart, "Press load (solid) and cavity fill (dashed) against the die position from closure", prefix);
+        TelemetryTable(h, rows, prefix);
+        h.Append("</div>");
 
-        // Fields
-        h.Append("<section class=\"break\"><h2>Result fields at die closure</h2><div class=\"grid2\">");
-        foreach (var (name, unit, image) in r.Fields) Img(h, image, name + " [" + unit + "]");
-        h.Append("</div></section>");
+        if (r.Fields.Count > 0)
+        {
+            H(h, hx, "Result fields at die closure");
+            h.Append("<div class=\"grid3\">");
+            foreach (var (name, unit, image) in r.Fields) Img(h, image, name + " [" + unit + "]", prefix);
+            h.Append("</div>");
+        }
+        else if (r.Run is not null)
+        {
+            h.Append("<p class=\"note\">The full results of this run were released to save memory (only the most recent runs keep them): setup, telemetry and curves are reported. Re-run it to add the result fields.</p>");
+        }
 
         if (r.Stages.Count > 0)
         {
-            h.Append("<section class=\"break\"><h2>Ram descent</h2><div class=\"grid3\">");
-            foreach (var (caption, image) in r.Stages) Img(h, image, caption);
-            h.Append("</div></section>");
-        }
-
-        if (r.Video is { } v && !v.EndsWith("_frames", StringComparison.Ordinal))
-        {
-            h.Append("<section><h2>Video</h2><video controls loop src=\"").Append(E(v)).Append("\"></video><p class=\"note\">")
-             .Append(E(v)).Append(" — opens in any modern browser.</p></section>");
+            H(h, hx, "Ram descent");
+            h.Append("<div class=\"grid5\">");
+            foreach (var (caption, image) in r.Stages) Img(h, image, caption, prefix);
+            h.Append("</div>");
         }
 
         if (r.SurfaceTriangles > 0)
         {
-            h.Append("<section><h2>Deformed part</h2><p>").Append(F($"Full deformed part exported as STL and PLY: {r.SurfaceTriangles:N0} triangles, enclosed volume ")).Append(E(u.Vf(r.SurfaceVolume))).Append(" (files in mm, z = press axis).")
-             .Append("</p></section>");
+            h.Append("<p class=\"note\">").Append(F($"Deformed part exported as STL and PLY: {r.SurfaceTriangles:N0} triangles, enclosed volume ")).Append(E(u.Vf(r.SurfaceVolume))).Append(" (files in mm, z = press axis).</p>");
         }
 
-        // Telemetry table
-        h.Append("<section class=\"break\"><h2>Telemetry</h2><table class=\"data\"><thead><tr><th>Step</th><th>Stroke " + u.Length + "</th><th>Gap " + u.Length + "</th><th>Load " + u.Load + "</th><th>Fill %</th><th>ΔV %</th><th>σ̄ max " + u.Stress + "</th><th>ε̄ max</th><th>Elements</th></tr></thead><tbody>");
-        int stride = Math.Max(1, (int)Math.Ceiling(rows.Count / 80.0));
-        for (int i = 0; i < rows.Count; i++)
+        if (r.Video is { } v && !v.EndsWith("_frames", StringComparison.Ordinal))
         {
-            if (i % stride != 0 && i != rows.Count - 1) continue;
-            var x = rows[i];
-            h.Append(F($"<tr><td>{x.Step}</td><td>{u.L(x.Stroke).ToString(u.LengthFormat, Inv)}</td><td>{u.L(x.DieGap).ToString(u.LengthFormat, Inv)}</td><td>{u.LoadFromTonnes(x.LoadTonnes).ToString(u.LoadFormat, Inv)}</td><td>{x.FillPercent:F2}</td><td>{x.VolumeChangePercent:F3}</td><td>{u.S(x.MaxVonMises).ToString(u.StressFormat, Inv)}</td><td>{x.MaxEffectiveStrain:F3}</td><td>{x.Elements}</td></tr>"));
+            h.Append("<div class=\"screen\">");
+            H(h, hx, "Video");
+            h.Append("<video controls loop preload=\"metadata\" src=\"").Append(E(prefix + v)).Append("\"></video></div>");
         }
-
-        h.Append("</tbody></table>");
-        if (stride > 1) h.Append(F($"<p class=\"note\">Every {stride}th increment shown; telemetry.csv has all {rows.Count}.</p>"));
-        h.Append("</section>");
-
-        // Runs comparison
-        if (vm.Runs.Count > 1)
-        {
-            h.Append("<section><h2>Runs in this session</h2><table class=\"data\"><thead><tr><th>#</th><th>Run</th><th>Peak " + u.Load + "</th><th>Fill %</th><th>Stroke " + u.Length + "</th><th>ΔV %</th><th>Time s</th><th>Status</th></tr></thead><tbody>");
-            foreach (var x in vm.Runs.Reverse())
-            {
-                h.Append("<tr><td>").Append(x.Number).Append("</td><td class=\"l\">").Append(E(x.Label)).Append("</td>")
-                 .Append(F($"<td>{u.LoadFromTonnes(x.PeakLoad).ToString(u.LoadFormat, Inv)}</td><td>{x.FinalFill:F1}</td><td>{u.L(x.FinalStroke).ToString(u.LengthFormat, Inv)}</td><td>{x.VolumeChange:F2}</td><td>{x.Elapsed.TotalSeconds:F1}</td><td>{x.StatusText}</td></tr>"));
-            }
-
-            h.Append("</tbody></table></section>");
-        }
-
-        // Files
-        h.Append("<section><h2>Files</h2><ul class=\"files\">");
-        foreach (var (path, what) in r.Files) h.Append("<li><a href=\"").Append(E(path)).Append("\">").Append(E(path)).Append("</a> — ").Append(E(what)).Append("</li>");
-        h.Append("<li><a href=\"images/\">images/</a> — every figure of this report as PNG</li></ul></section>");
-
-        h.Append("<footer>Generated by ImpressionFEA ").Append(E(AppVersion.Display))
-         .Append(" · © 2026 Marconnet Technologies LLC · CC BY-NC 4.0<br>See the assumptions at the top of this report. Loads and fill are engineering estimates, not certified predictions.</footer>");
-        h.Append("</body></html>");
-        return h.ToString();
     }
 
-    private static void Card(StringBuilder h, string label, string value, string note) =>
-        h.Append("<div class=\"card\"><div class=\"label\">").Append(E(label)).Append("</div><div class=\"value\">").Append(value).Append("</div><div class=\"note\">").Append(E(note)).Append("</div></div>");
+    /// <summary>Telemetry at every 10 % of the stroke and at the peak load (the CSV has every increment).</summary>
+    private static void TelemetryTable(StringBuilder h, IReadOnlyList<TelemetryRow> rows, string prefix)
+    {
+        var u = U;
+        int peak = 0;
+        for (int i = 1; i < rows.Count; i++)
+        {
+            if (rows[i].LoadTonnes > rows[peak].LoadTonnes) peak = i;
+        }
 
-    private static void Kv(StringBuilder h, string k, string v) => h.Append("<tr><th>").Append(E(k)).Append("</th><td>").Append(E(v)).Append("</td></tr>");
+        double total = rows[^1].Stroke;
+        var pick = new SortedSet<int> { 0, rows.Count - 1, peak };
+        for (int k = 1; k < 10; k++)
+        {
+            double target = total * k / 10;
+            int best = 0;
+            for (int i = 1; i < rows.Count; i++)
+            {
+                if (Math.Abs(rows[i].Stroke - target) < Math.Abs(rows[best].Stroke - target)) best = i;
+            }
 
-    private static void Img(StringBuilder h, (string File, string Base64) img, string caption)
+            pick.Add(best);
+        }
+
+        h.Append("<div class=\"tele\"><table class=\"data\"><thead><tr><th>Step</th><th>Gap ").Append(E(u.Length)).Append("</th><th>Load ").Append(E(u.Load))
+         .Append("</th><th>Fill %</th><th>σ̄ max ").Append(E(u.Stress)).Append("</th><th>ε̄ max</th><th>Elem.</th></tr></thead><tbody>");
+        foreach (int i in pick)
+        {
+            var x = rows[i];
+            h.Append(i == peak ? "<tr class=\"pk\">" : "<tr>")
+             .Append(F($"<td>{x.Step}</td><td>{u.L(x.DieGap).ToString(u.LengthFormat, Inv)}</td><td>{u.LoadFromTonnes(x.LoadTonnes).ToString(u.LoadFormat, Inv)}</td><td>{x.FillPercent:F1}</td><td>{u.S(x.MaxVonMises).ToString(u.StressFormat, Inv)}</td><td>{x.MaxEffectiveStrain:F2}</td><td>{x.Elements}</td></tr>"));
+        }
+
+        h.Append("</tbody></table><div class=\"tcap\">Every 10 % of the stroke; bold = peak load. All ").Append(rows.Count.ToString(Inv))
+         .Append(" increments: <a href=\"").Append(E(prefix)).Append("telemetry.csv\">").Append(E(prefix)).Append("telemetry.csv</a></div></div>");
+    }
+
+    /// <summary>Runs as columns (header: colour, run number, what sets it apart), inputs that differ and results as rows.</summary>
+    private static void CompareTable(StringBuilder h, List<RunReport> runs, IReadOnlyList<RunParameter> varied)
+    {
+        var u = U;
+        var ranked = runs.Where(r => r.Run!.Status == SimulationStatus.Completed).ToList();
+        if (ranked.Count == 0) ranked = runs;
+        double bestPeak = ranked.Min(r => r.Run!.PeakLoad), bestFill = ranked.Max(r => r.Run!.FinalFill);
+        bool rank = runs.Count > 1;
+
+        h.Append("<table class=\"cmp\"><colgroup><col class=\"name\">");
+        foreach (var _ in runs) h.Append("<col>");
+        h.Append("</colgroup><thead><tr><th></th>");
+        foreach (var r in runs)
+        {
+            var run = r.Run!;
+            h.Append("<th style=\"border-top-color:").Append(Hex(run)).Append("\"><a href=\"#").Append(r.Anchor).Append("\">Run ").Append(run.Number.ToString(Inv))
+             .Append("</a><span>").Append(E(RunComparison.Distinction(run, varied))).Append("</span></th>");
+        }
+
+        h.Append("</tr></thead><tbody>");
+        void Group(string name) => h.Append("<tr class=\"grp\"><th colspan=\"").Append(runs.Count + 1).Append("\">").Append(E(name)).Append("</th></tr>");
+        void Row(string name, Func<RunReport, string> value, Func<RunReport, string>? css = null)
+        {
+            h.Append("<tr><th>").Append(E(name)).Append("</th>");
+            foreach (var r in runs) h.Append("<td class=\"").Append(css?.Invoke(r) ?? "").Append("\">").Append(value(r)).Append("</td>");
+            h.Append("</tr>");
+        }
+
+        if (varied.Count > 0)
+        {
+            Group("Inputs that differ");
+            foreach (var p in varied) Row(p.Name, r => E(p.Show(r.Settings)));
+        }
+
+        Group("Results");
+        Row("Peak press load (" + u.Load + ")",
+            r => u.LoadFromTonnes(r.Run!.PeakLoad).ToString(u.LoadFormat, Inv) + (r.Run.PeakLoad > r.Settings.PressCapacity ? " ▲" : ""),
+            r => r.Run!.PeakLoad > r.Settings.PressCapacity ? "bad" : rank && r.Run.PeakLoad == bestPeak ? "best" : "");
+        Row("… at die gap (" + u.Length + ")", r => u.L(r.Rows.MaxBy(x => x.LoadTonnes)!.DieGap).ToString(u.LengthFormat, Inv));
+        Row("Final cavity fill (%)", r => F($"{r.Run!.FinalFill:F1}"), r => rank && r.Run!.FinalFill == bestFill ? "best" : "");
+        Row("Final die gap (" + u.Length + ")", r => u.L(r.Rows[^1].DieGap).ToString(u.LengthFormat, Inv));
+        Row("Volume change (%)", r => F($"{r.Run!.VolumeChange:+0.00;-0.00;0.00}"));
+        Row("Max effective strain", r => F($"{r.Rows.Max(x => x.MaxEffectiveStrain):F2}"));
+        Row("Max von Mises (" + u.Stress + ")", r => u.S(r.Rows.Max(x => x.MaxVonMises)).ToString(u.StressFormat, Inv));
+        Row("Increments · remeshes", r => F($"{r.Rows.Count - 1}") + (r.Log.Length > 0 ? F($" · {RemeshRx().Matches(r.Log).Count}") : ""));
+        Row("Solve time (s)", r => F($"{r.Run!.Elapsed.TotalSeconds:F1}"));
+        Row("Status", r => Pill(r.Run!));
+        h.Append("</tbody></table>");
+    }
+
+    private static void SessionRuns(StringBuilder h, IReadOnlyList<RunRecord> runs)
+    {
+        var u = U;
+        h.Append("<h2>Runs in this session</h2><table class=\"data\"><thead><tr><th class=\"l\">Run</th><th class=\"l\">Setup</th><th>Peak " + u.Load + "</th><th>Fill %</th><th>ΔV %</th><th>Time s</th><th>Status</th></tr></thead><tbody>");
+        foreach (var x in runs)
+        {
+            h.Append("<tr><td class=\"l\">").Append(Swatch(x)).Append("Run ").Append(x.Number).Append("</td><td class=\"l\">").Append(E(RunNumberRx().Replace(x.Label, ""))).Append("</td>")
+             .Append(F($"<td>{u.LoadFromTonnes(x.PeakLoad).ToString(u.LoadFormat, Inv)}</td><td>{x.FinalFill:F1}</td><td>{x.VolumeChange:F2}</td><td>{x.Elapsed.TotalSeconds:F1}</td><td>"))
+             .Append(Pill(x)).Append("</td></tr>");
+        }
+
+        h.Append("</tbody></table><p class=\"note screen\">For a side-by-side comparison with every run's report, use Export ▸ Comparison report.</p>");
+    }
+
+    /// <summary>The files beside the report (on screen only: links are of no use on paper).</summary>
+    private static void FileList(StringBuilder h, List<(string Path, string What)> files, string prefix, string hx)
+    {
+        h.Append("<div class=\"screen\">");
+        H(h, hx, "Files");
+        h.Append("<ul class=\"files\">");
+        foreach (var (path, what) in files) h.Append("<li><a href=\"").Append(E(prefix + path)).Append("\">").Append(E(prefix + path)).Append("</a> — ").Append(E(what)).Append("</li>");
+        h.Append("<li><a href=\"").Append(E(prefix)).Append("images/\">").Append(E(prefix)).Append("images/</a> — every figure as a high-resolution PNG (click a figure to open it)</li>");
+        h.Append("</ul></div>");
+    }
+
+    /// <summary>Key–value pairs flowing in two columns.</summary>
+    private static void KvColumns(StringBuilder h, IReadOnlyList<(string Key, string Value)> kv)
+    {
+        h.Append("<dl class=\"kv\">");
+        foreach (var (k, v) in kv) h.Append("<div><dt>").Append(E(k)).Append("</dt><dd>").Append(E(v)).Append("</dd></div>");
+        h.Append("</dl>");
+    }
+
+    private static void H(StringBuilder h, string hx, string text) =>
+        h.Append('<').Append(hx).Append('>').Append(E(text)).Append("</").Append(hx).Append('>');
+
+    private static string Hex(RunRecord r) => F($"#{r.Color.R:X2}{r.Color.G:X2}{r.Color.B:X2}");
+
+    private static string Swatch(RunRecord r) => "<span class=\"sw\" style=\"background:" + Hex(r) + "\"></span>";
+
+    private static string Pill(RunRecord r) => "<span class=\"pill " + r.Status switch
+    {
+        SimulationStatus.Completed => "ok",
+        SimulationStatus.Aborted => "warn",
+        _ => "bad",
+    } + "\">" + E(r.StatusText) + "</span>";
+
+    private static void Kpi(StringBuilder h, string label, string value, string note, string css = "") =>
+        h.Append("<div class=\"kpi ").Append(css).Append("\"><div class=\"label\">").Append(E(label)).Append("</div><div class=\"value\">").Append(value)
+         .Append("</div><div class=\"note\">").Append(E(note)).Append("</div></div>");
+
+    /// <summary>A numbered figure; the image links to its high-resolution PNG (<paramref name="prefix"/> + file).</summary>
+    private static void Img(StringBuilder h, (string File, string Base64) img, string caption, string prefix)
     {
         if (string.IsNullOrEmpty(img.Base64)) return;
-        h.Append("<figure><img alt=\"").Append(E(caption)).Append("\" src=\"data:image/png;base64,").Append(img.Base64).Append("\"><figcaption>")
-         .Append(E(caption)).Append("</figcaption></figure>");
+        h.Append("<figure><a href=\"").Append(E(prefix + img.File)).Append("\" title=\"Open the high-resolution image\"><img alt=\"").Append(E(caption))
+         .Append("\" src=\"data:image/png;base64,").Append(img.Base64).Append("\"></a><figcaption>").Append(E(caption)).Append("</figcaption></figure>");
     }
 
     private const string Css = """
-        :root{--ink:#101418;--muted:#56606c;--line:#d5dae0;--accent:#0b5cad;--bg:#f4f6f8}
-        *{box-sizing:border-box}body{margin:0;padding:24px 32px;font:14px/1.45 "Segoe UI",system-ui,sans-serif;color:var(--ink);background:#fff;max-width:1200px;margin-inline:auto}
-        header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid var(--accent);padding-bottom:10px;margin-bottom:18px}
-        h1{margin:0;font-size:26px}h2{font-size:17px;margin:26px 0 10px;border-bottom:1px solid var(--line);padding-bottom:4px}
-        .sub{margin:2px 0 0;color:var(--muted);font-size:15px}.meta{text-align:right;color:var(--muted);font-size:12px}
-        .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
-        .card{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px}
-        .card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.card .value{font-size:22px;font-weight:600;margin:2px 0}
-        .note{color:var(--muted);font-size:12px}
-        .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:800px){.cols{grid-template-columns:1fr}}
-        table{border-collapse:collapse;width:100%}.kv th{text-align:left;color:var(--muted);font-weight:500;width:34%;vertical-align:top;padding:3px 8px 3px 0}.kv td{padding:3px 0}
-        .data th,.data td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px}.data th{background:var(--bg)}.data td.l{text-align:left}
-        figure{margin:0 0 10px}figure img{width:100%;border:1px solid var(--line);border-radius:4px}figcaption{font-size:12px;color:var(--muted);margin-top:3px}
-        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-        video{width:100%;border:1px solid var(--line);border-radius:4px}ul.files{padding-left:18px}
-        footer{margin-top:30px;border-top:1px solid var(--line);padding-top:8px;color:var(--muted);font-size:12px}
-        .assume{background:#fff8ec;border:1px solid #e8c98f;border-radius:6px;padding:4px 16px 8px;margin-top:18px}.assume h2{border:0;margin-top:10px}.assume li{margin:2px 0}
-        @media print{body{padding:0}.break{break-before:page}video{display:none}}
+        :root{--ink:#14181d;--muted:#5b6570;--line:#d9dee4;--rule:#14181d;--accent:#0b5cad;--bg:#f5f7f9;--ok:#1e7b34;--warn:#a6761d;--bad:#b42318}
+        *{box-sizing:border-box}
+        body{margin:0 auto;padding:28px 36px;max-width:1120px;font:13px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--ink);background:#fff;counter-reset:fig}
+        a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+        .muted{color:var(--muted);font-weight:400}.small{font-size:11.5px}.note{color:var(--muted);font-size:11.5px;margin:4px 0 0}
+        header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;border-bottom:2px solid var(--rule);padding-bottom:8px;margin-bottom:12px}
+        .eyebrow{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+        h1{margin:2px 0 0;font-size:22px;line-height:1.2}.sub{color:var(--muted);font-size:13px;margin-top:2px}
+        .meta{text-align:right;color:var(--muted);font-size:11px;white-space:nowrap;line-height:1.5}
+        h2{font-size:14px;margin:18px 0 8px;padding-bottom:3px;border-bottom:1px solid var(--line);letter-spacing:.01em}
+        h3{font-size:12.5px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.06em;color:#38414b}
+        .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border:1px solid var(--line);border-radius:4px;margin:10px 0}
+        .kpi{padding:7px 12px;border-left:1px solid var(--line)}.kpi:first-child{border-left:0}
+        .kpi .label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.kpi .value{font-size:18px;font-weight:600;margin:1px 0}
+        .kpi .note{margin:0;font-size:10.5px}.kpi.bad .value{color:var(--bad)}
+        .assume{border:1px solid #ead7ae;background:#fffaf0;border-radius:4px;padding:5px 12px;margin:10px 0;font-size:11.5px}
+        .assume summary{font-weight:600;cursor:pointer}.assume ul{columns:2;column-gap:28px;margin:4px 0 2px;padding-left:16px}.assume li{margin:1px 0;break-inside:avoid}
+        dl.kv{columns:2;column-gap:28px;margin:0}dl.kv div{display:flex;gap:10px;break-inside:avoid;padding:2px 0;border-bottom:1px dotted var(--line)}
+        dl.kv dt{flex:0 0 36%;color:var(--muted)}dl.kv dd{margin:0;flex:1}
+        table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+        .data th,.data td{border-bottom:1px solid var(--line);padding:2px 6px;text-align:right;font-size:11.5px}.data th{background:var(--bg);font-weight:600}.data .l{text-align:left}
+        .data tr.pk td{font-weight:700}
+        table.cmp{margin:4px 0 8px;table-layout:fixed}table.cmp col.name{width:190px}
+        .cmp thead th{border-top:5px solid var(--ink);background:var(--bg);padding:6px 8px;text-align:center;vertical-align:top;font-size:13px}
+        .cmp thead th span{display:block;font-weight:400;font-size:11px;color:var(--muted);margin-top:1px}.cmp thead th:first-child{border-top:0;background:none}
+        .cmp tbody th{text-align:left;font-weight:500;color:var(--muted);padding:3px 8px 3px 0;font-size:11.5px}
+        .cmp td{text-align:center;padding:3px 8px;border-bottom:1px solid var(--line);font-size:12px}
+        .cmp tr.grp th{color:var(--ink);font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;padding:8px 0 2px;border-bottom:1.5px solid var(--ink)}
+        .cmp td.best{color:var(--ok);font-weight:700}.cmp td.bad{color:var(--bad);font-weight:700}
+        .sw{display:inline-block;width:16px;height:5px;border-radius:2px;margin-right:7px;vertical-align:middle}
+        .pill{display:inline-block;padding:0 7px;border-radius:9px;font-size:10.5px;font-weight:600;color:#fff;background:var(--muted)}.pill.ok{background:var(--ok)}.pill.warn{background:var(--warn)}.pill.bad{background:var(--bad)}
+        .toc{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 14px;margin:10px 0}.toc ol{margin:3px 0 0;padding-left:20px;columns:2}.toc li{margin:2px 0}
+        .run{margin-top:36px;border-top:5px solid var(--run,var(--accent));padding-top:2px}
+        .runhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.runhead h2{border:0;margin:2px 0 0;font-size:18px;padding:0}
+        .runhead .right{display:flex;gap:10px;align-items:center;padding-top:16px;font-size:11.5px}
+        figure{margin:0;break-inside:avoid;counter-increment:fig}figure img{display:block;width:100%;border:1px solid var(--line)}
+        figcaption{font-size:11px;color:var(--muted);margin:3px 0 8px}figcaption::before{content:"Fig. " counter(fig) "  ";font-weight:600;color:var(--ink)}
+        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 12px}
+        .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 10px}.grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:6px 8px}
+        .split{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;align-items:start}.tcap{font-size:10.5px;color:var(--muted);margin-top:3px}
+        @media(max-width:860px){.grid2,.grid3,.grid4,.split{grid-template-columns:1fr}.grid5{grid-template-columns:repeat(2,1fr)}dl.kv,.assume ul,.toc ol{columns:1}}
+        video{width:100%;border:1px solid var(--line)}ul.files{padding-left:18px;font-size:12px}
+        footer{margin-top:24px;border-top:1px solid var(--line);padding-top:6px;color:var(--muted);font-size:10.5px}
+        @page{margin:12mm 11mm 13mm}
+        @media print{
+          body{padding:0;max-width:none;font-size:9pt}.screen{display:none!important}a{color:inherit}
+          header{margin-bottom:8px}h1{font-size:16pt}h2{font-size:11pt;margin:10px 0 5px;break-after:avoid}h3{font-size:8.5pt;margin:8px 0 4px;break-after:avoid}
+          .kpi .value{font-size:13pt}.kpi{padding:4px 9px}.assume{font-size:8pt;padding:3px 10px}
+          .data th,.data td{font-size:8pt;padding:1px 4px}.cmp td,.cmp thead th{font-size:8.5pt;padding:2px 5px}.cmp tbody th{font-size:8pt}
+          figcaption{font-size:7.5pt;margin-bottom:4px}.run{break-before:page;margin-top:0}
+          tr,dl.kv div,.kpis,.tele{break-inside:avoid}thead{display:table-header-group}footer{font-size:7.5pt}
+          *{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
         """;
 }

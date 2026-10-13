@@ -456,6 +456,69 @@ public sealed partial class MainViewModel
         StatusText = $"Showing {run.Label} — {run.Summary}. Pick another run to compare; inputs on the left are unchanged.";
     }
 
+    /// <summary>
+    /// Double-click on the telemetry chart: finds the curve nearest to <paramref name="at"/> (chart coordinates), loads
+    /// that run into the viewport, selects it in RUNS and moves the slider to the increment under the cursor. Returns the
+    /// run picked (null: no curve within reach, or busy).
+    /// </summary>
+    public RunRecord? PickCurve(ScreenPoint at)
+    {
+        if (IsRunning || IsSweeping || IsExporting) return null;
+        if (HitCurve(at) is not { Run: { } run } hit) return null;
+
+        if (!run.CanShow)
+        {
+            SelectedRun = run;
+            StatusText = $"{run.Label}: full results were released to save memory (the {KeepResults} most recent runs keep them); only its telemetry is kept.";
+            return run;
+        }
+
+        if (run != _shown) ShowRun(run);
+        SelectedRun = run;
+        ScrubIndex = Math.Clamp(hit.Index, 0, ScrubMaximum);
+        if (CurrentSnapshot is { } s1)
+            StatusText = $"Showing {run.Label} at step {s1.Step} — {U.Lf(s1.DieGap)} from die closure, {U.LoadfN(s1.LoadNewton)}, fill {s1.FillPercent.ToString("F1", Inv)} %.";
+        return run;
+    }
+
+    /// <summary>
+    /// The curve point nearest to <paramref name="at"/> (chart coordinates, within 14 px): which run, which increment,
+    /// its telemetry and, while the run keeps its full results, the increment itself (for a thumbnail).
+    /// </summary>
+    public CurveHit? HitCurve(ScreenPoint at)
+    {
+        OxyPlot.Series.Series? best = null;
+        TrackerHitResult? hit = null;
+        double reach = 14; // px
+        foreach (var s in LoadPlot.Series)
+        {
+            if (!s.IsVisible || s.GetNearestPoint(at, true) is not { } h) continue;
+            double d = h.Position.DistanceTo(at);
+            if (d >= reach) continue;
+            reach = d;
+            best = s;
+            hit = h;
+        }
+
+        if (best is null || hit is null) return null;
+        int index = (int)Math.Round(hit.Index);
+        bool load = best == _loadSeries || Runs.Any(r => r.LoadSeries == best);
+        if (best == _loadSeries || best == _fillSeries)
+        {
+            if (index < 0 || index >= _snapshots.Count) return null;
+            var run = _shown ?? CurrentRun;
+            var snap = _snapshots[index];
+            return new CurveHit(run, index, TelemetryRow.From(snap), snap, ActiveDie2D, ViewBounds,
+                run?.Label ?? "Current run", run?.Color ?? _loadSeries.Color, load);
+        }
+
+        var rec = Runs.FirstOrDefault(r => r.LoadSeries == best || r.FillSeries == best);
+        if (rec is null || index < 0 || index >= rec.Rows.Count) return null;
+        var results = rec.Results;
+        var s2 = results is not null && index < results.Snapshots.Count ? results.Snapshots[index] : null;
+        return new CurveHit(rec, index, rec.Rows[index], s2, results?.Die2D, results?.ViewBounds ?? ViewBounds, rec.Label, rec.Color, load);
+    }
+
     /// <summary>Out-of-plane length used to draw the shown 2D plane-strain result.</summary>
     public double ShownPartLength => _shown?.Results?.PartLength ?? _billetLength;
 
@@ -468,7 +531,8 @@ public sealed partial class MainViewModel
         string label = _runLabelOverride ?? DefaultLabel(settings);
         var rec = new RunRecord(n, F($"#{n} {label}"), settings, result.Snapshots.Select(TelemetryRow.From).ToList(), result.Status, elapsed, RunPalette[(n - 1) % RunPalette.Length])
         {
-            Results = new RunResults(result.Snapshots.ToList(), _analysis3D ? null : _selectedDie, _analysis3D ? _selectedDie3D : null, ViewBounds, Bounds3D, _billetLength),
+            Results = new RunResults(result.Snapshots.ToList(), _analysis3D ? null : _selectedDie, _analysis3D ? _selectedDie3D : null, ViewBounds, Bounds3D, _billetLength, RunLog),
+            Context = new RunContext(GeometryName, DieDescriptionText, MaterialSummary, AnalysisText),
         };
         rec.ShownChanged += (_, _) => SyncOverlays();
         _shown = rec; // already in the viewport
@@ -580,12 +644,13 @@ public sealed partial class MainViewModel
         Directory.CreateDirectory(folder);
         foreach (var r in Runs) SaveTelemetry(Path.Combine(folder, F($"run{r.Number:000}.csv")), r);
         string summary = Path.Combine(folder, "summary.csv");
-        WriteSummary(summary, Runs.Reverse());
+        WriteRunSummary(summary, Runs.Reverse());
         StatusText = $"{Runs.Count} runs saved to {folder}.";
         return summary;
     }
 
-    private static void WriteSummary(string path, IEnumerable<RunRecord> runs)
+    /// <summary>One row per run: status, key results and the main inputs (mm, t, °C).</summary>
+    internal static void WriteRunSummary(string path, IEnumerable<RunRecord> runs)
     {
         var lines = new List<string> { "run,label,status,peak_load_t,final_fill_pct,final_stroke_mm,volume_change_pct,solve_time_s,material,temperature_C,friction,ram_speed_mm_s,element_size_mm,stroke_increment_mm" };
         foreach (var r in runs)
@@ -607,7 +672,17 @@ public sealed partial class MainViewModel
     private bool _isSweeping;
     private string _sweepText = "";
 
-    public bool IsSweeping { get => _isSweeping; private set => Set(ref _isSweeping, value); }
+    public bool IsSweeping
+    {
+        get => _isSweeping;
+        private set
+        {
+            if (!Set(ref _isSweeping, value)) return;
+            OnPropertyChanged(nameof(CanExport));
+            OnPropertyChanged(nameof(CanEditQueue));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
 
     public string SweepText { get => _sweepText; private set => Set(ref _sweepText, value); }
 
@@ -622,7 +697,7 @@ public sealed partial class MainViewModel
         SweepParameter.ElementSize => (U.Length, string.Join(", ", new[] { 1.25, 1.0, 0.8 }.Select(k => U.L(_elementSize * k).ToString(U.FineLengthFormat, Inv)))),
         SweepParameter.StrokeIncrement => (U.Length, string.Join(", ", new[] { 1.0, 0.5, 0.25 }.Select(k => U.L(_strokeIncrement * k).ToString(U.FineLengthFormat, Inv)))),
         SweepParameter.WorkpieceOffsetX => (U.Length, string.Join(", ", new[] { 0.0, 5, 10, 15 }.Select(mm => U.L(mm).ToString(U.LengthFormat, Inv)))),
-        _ => ("", string.Join(", ", Materials.Select(m => m.Name.Split(' ')[0] + " " + m.Name.Split(' ').ElementAtOrDefault(1)))),
+        _ => ("", "AISI 4140, 6061-T6, C11000, Modeling plasticine"),
     };
 
     /// <summary>
@@ -674,7 +749,7 @@ public sealed partial class MainViewModel
             await ApplySettingsAsync(original);
         }
 
-        if (folder is not null && done.Count > 0) WriteSummary(Path.Combine(folder, "summary.csv"), done);
+        if (folder is not null && done.Count > 0) WriteRunSummary(Path.Combine(folder, "summary.csv"), done);
         string table = string.Join(Environment.NewLine, done.Select(r => F($"  #{r.Number,-3} {r.Label,-70} peak {r.PeakLoad,8:F1} t   fill {r.FinalFill,6:F1} %   {r.StatusText}")));
         _logQueue.Enqueue($"=== Multi-run {(_sweepAbort ? "aborted" : "finished")}: {done.Count} of {values.Count} runs ===" + Environment.NewLine + table);
         StatusText = F($"Multi-run {(_sweepAbort ? "aborted" : "finished")}: {done.Count} runs. Curves are overlaid on the telemetry chart.") + (folder is not null ? " Telemetry saved to " + folder : "");

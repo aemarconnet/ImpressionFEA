@@ -11,6 +11,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitChartInteraction(LoadChart);
         // Esc aborts whatever is running: solve, multi-run or export.
         PreviewKeyDown += (_, e) =>
         {
@@ -71,6 +72,7 @@ public partial class MainWindow : Window
                 }
 
                 if (tabIndex > 0 && FindName("ConfigTabs") is System.Windows.Controls.TabControl tabs) tabs.SelectedIndex = tabIndex;
+                if (Array.IndexOf(args, "--list-tab") is int lt && lt >= 0 && lt + 1 < args.Length && int.TryParse(args[lt + 1], out int li)) ListTabs.SelectedIndex = li;
                 ApplySetArgs(vm, args);
                 int show = Array.IndexOf(args, "--show-run");
                 if (show >= 0 && show + 1 < args.Length && int.TryParse(args[show + 1], out int runNo) && vm.Runs.FirstOrDefault(r => r.Number == runNo) is { } run)
@@ -82,7 +84,6 @@ public partial class MainWindow : Window
 
     private async void ImportStep_Click(object sender, RoutedEventArgs e)
     {
-        var vm = (MainViewModel)DataContext;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Import STEP assembly (bottom die, workpiece, top die)",
@@ -90,7 +91,14 @@ public partial class MainWindow : Window
         };
         dlg.InitialDirectory = Infrastructure.AppSettings.Folder("step", FindSamples());
         if (!Ask(dlg, "step")) return;
-        string? error = await vm.ImportStepAsync(dlg.FileName, asm =>
+        await ImportStepFile(dlg.FileName);
+    }
+
+    /// <summary>Imports a STEP assembly (from the menu or a drop), asking which outer body is the moving top die.</summary>
+    private async Task ImportStepFile(string path)
+    {
+        Infrastructure.AppSettings.Remember("step", path);
+        string? error = await Vm.ImportStepAsync(path, asm =>
         {
             var pick = new TopDieDialog(asm) { Owner = this };
             return pick.ShowDialog() == true ? pick.SelectedTop : null;
@@ -193,6 +201,13 @@ public partial class MainWindow : Window
     {
         var dlg = new MultiRunDialog(Vm, parameter, values) { Owner = this };
         if (dlg.ShowDialog() != true) return;
+        if (dlg.ToQueue)
+        {
+            Warn(await Vm.AddSweepToQueueAsync(dlg.Parameter, dlg.Values), "Multi-run to queue");
+            ShowQueueTab();
+            return;
+        }
+
         Infrastructure.AppSettings.Remember("multirun", dlg.Folder);
         Warn(await Vm.RunSweepAsync(dlg.Parameter, dlg.Values, dlg.Folder), "Multi-run");
     }
@@ -243,9 +258,40 @@ public partial class MainWindow : Window
         if (sender is System.Windows.Controls.Button { ContextMenu: { } menu } b)
         {
             menu.PlacementTarget = b;
-            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top; // the button sits in the window's bottom-right corner
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.DataContext = DataContext;
             menu.IsOpen = true;
         }
+    }
+
+    private void CompareReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (Vm.Runs.Count == 0) return;
+        var dlg = new Export.ComparisonReportDialog(Vm.Runs, ExportBaseName() + "_comparison") { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        RunComparisonReport(dlg.Options);
+    }
+
+    /// <summary>Run context menu: a report of that one run (standalone report in its folder).</summary>
+    private void RunReport_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not RunRecord run) return;
+        var dlg = new Export.ReportDialog(ExportBaseName() + FormattableString.Invariant($"_run{run.Number:00}_report")) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        var o = dlg.Options;
+        RunComparisonReport(new Export.ComparisonOptions(o.Folder, [run], true, o.IncludeStages, o.IncludeSurface, o.IncludeVideo, o.OpenWhenDone), single: true);
+    }
+
+    private void RunComparisonReport(Export.ComparisonOptions o, bool single = false)
+    {
+        Infrastructure.AppSettings.Remember("report", System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(o.Folder)));
+        RunExport(async ct =>
+        {
+            string html = await Exporter.GenerateComparisonAsync(o, ct);
+            if (single) html = System.IO.Path.Combine(o.Folder, FormattableString.Invariant($"run{o.Runs[0].Number:00}"), "report.html");
+            if (o.OpenWhenDone) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(html) { UseShellExecute = true });
+            return html;
+        }, single ? "Run report" : "Comparison report");
     }
 
     private void SaveImage_Click(object sender, RoutedEventArgs e)
@@ -390,6 +436,16 @@ public partial class MainWindow : Window
 
     private async Task CaptureAsync(MainViewModel vm, string path, bool solve)
     {
+        // --window 1344x756 sizes the window first (layout checks at small screen sizes).
+        var size = Environment.GetCommandLineArgs().SkipWhile(a => a != "--window").Skip(1).FirstOrDefault()?.Split('x');
+        if (size is [{ } w, { } h] && double.TryParse(w, out double ww) && double.TryParse(h, out double hh))
+        {
+            WindowState = WindowState.Normal;
+            Width = ww;
+            Height = hh;
+            UpdateLayout();
+        }
+
         if (solve)
         {
             vm.SolveCommand.Execute(null);
@@ -404,6 +460,27 @@ public partial class MainWindow : Window
         if (sc >= 0 && sc + 1 < argv.Length && int.TryParse(argv[sc + 1], out int scrub)) vm.ScrubIndex = scrub;
 
         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+        // --chart-card out.png: the hold card for the middle of the first curve (popups are not in the window capture).
+        if (Environment.GetCommandLineArgs().SkipWhile(a => a != "--chart-card").Skip(1).FirstOrDefault() is { } cardPng
+            && vm.LoadPlot.Series.OfType<OxyPlot.Series.LineSeries>().FirstOrDefault(s => s.Points.Count > 2) is { } curve)
+        {
+            var at = curve.Transform(curve.Points[curve.Points.Count * 2 / 3]);
+            if (vm.HitCurve(at) is { } hit)
+            {
+                var card = CardContent(hit);
+                card.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                card.Arrange(new Rect(card.DesiredSize));
+                card.UpdateLayout();
+                var cb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)card.ActualWidth + 20, (int)card.ActualHeight + 20, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                cb.Render(card);
+                var ce = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                ce.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(cb));
+                await using var cf = System.IO.File.Create(cardPng);
+                ce.Save(cf);
+            }
+        }
+
         var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
         var root = (FrameworkElement)Content;
         var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(
@@ -413,6 +490,10 @@ public partial class MainWindow : Window
         var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
         enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
         await using (var fs = System.IO.File.Create(path)) enc.Save(fs);
+
+        // --runs-folder DIR: every run's telemetry and a summary.csv (status, peak load, fill per run) for batch checks.
+        if (Environment.GetCommandLineArgs().SkipWhile(a => a != "--runs-folder").Skip(1).FirstOrDefault() is { } runsFolder && vm.Runs.Count > 0)
+            vm.SaveAllTelemetry(runsFolder);
         Application.Current.Shutdown(vm.State == RunState.Failed ? 1 : 0);
     }
 }

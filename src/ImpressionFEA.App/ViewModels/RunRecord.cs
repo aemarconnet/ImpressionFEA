@@ -12,7 +12,23 @@ public sealed record RunResults(
     ImpressionFEA.Core.ThreeD.DieSet3D? Die3D,
     System.Windows.Rect ViewBounds,
     System.Windows.Media.Media3D.Rect3D Bounds3D,
-    double PartLength);
+    double PartLength,
+    string Log = "");
+
+/// <summary>A point on a telemetry-chart curve: the run (null: results not stored as a run), increment, telemetry and, when kept, the increment's results.</summary>
+public sealed record CurveHit(
+    RunRecord? Run,
+    int Index,
+    TelemetryRow Row,
+    ForgingSnapshot? Snapshot,
+    ImpressionFEA.Core.Geometry.DieSet? Die2D,
+    System.Windows.Rect ViewBounds,
+    string Name,
+    OxyColor Color,
+    bool OnLoadCurve);
+
+/// <summary>What the inputs looked like when the run finished (the inputs may have changed since): for reports.</summary>
+public sealed record RunContext(string Geometry, string Description, string MaterialSummary, string Analysis);
 
 /// <summary>A finished (or failed) run kept in the session history: its setup, telemetry and chart overlay.</summary>
 public sealed class RunRecord : ObservableObject
@@ -61,6 +77,9 @@ public sealed class RunRecord : ObservableObject
     public TimeSpan Elapsed { get; }
 
     public OxyColor Color { get; }
+
+    /// <summary>Geometry, material and analysis as they were for this run (null for runs recorded without it).</summary>
+    public RunContext? Context { get; init; }
 
     private RunResults? _results;
 
@@ -111,10 +130,10 @@ public sealed class RunRecord : ObservableObject
     public string Summary => Units.Current.Loadf(PeakLoad) + FormattableString.Invariant($" · {FinalFill:F1} % · {StatusText}");
 
     private static List<DataPoint> LoadPoints(IReadOnlyList<TelemetryRow> rows) =>
-        rows.Select(r => new DataPoint(Units.Current.L(r.Stroke), Units.Current.LoadFromTonnes(r.LoadTonnes))).ToList();
+        rows.Select(r => new DataPoint(-Units.Current.L(r.DieGap), Units.Current.LoadFromTonnes(r.LoadTonnes))).ToList();
 
     private static List<DataPoint> FillPoints(IReadOnlyList<TelemetryRow> rows) =>
-        rows.Select(r => new DataPoint(Units.Current.L(r.Stroke), r.FillPercent)).ToList();
+        rows.Select(r => new DataPoint(-Units.Current.L(r.DieGap), r.FillPercent)).ToList();
 
     /// <summary>Re-expresses the overlay curves and summary in the current display units.</summary>
     public void ApplyUnits()

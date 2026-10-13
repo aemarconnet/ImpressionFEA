@@ -32,7 +32,9 @@ Every report repeats these at the top:
 * **Rigid dies**: no die deflection, wear or temperature change.
 * **Constant shear friction** `τ = m·k` over the whole contact.
 * **Quasi-static** forming at constant ram speed: inertia and gravity are neglected.
-* Material data are representative handbook values; load and fill are engineering estimates for design comparison,
+* Material data are fitted to published hot-flow tables (Altan, Ngaile & Shen, *Cold and Hot Forging*, ASM 2005,
+  Tables 4.7–4.9) where the grade or a close grade is listed, otherwise representative values; each material states
+  its source. Load and fill are engineering estimates for design comparison,
   not certified predictions.
 
 ## Build from source
@@ -115,6 +117,18 @@ job is selected, the app watches the file: when you export again from CAD, a yel
 * **Basic / Advanced / Demos** tabs. Basic holds geometry, material, mesh size and press. Advanced holds the stroke
   increment, robustness controls (auto time-stepping, cutbacks, local refinement, remesh threshold, node budget),
   nonlinear tolerances and the linear-solver backend, with **Reset to recommended**.
+* **File ▾** (execution bar): open / save setups, import or re-import STEP. **Drag and drop** works too: drop a STEP
+  assembly to import it, a setup to open it, several setups or a `*.ifea-queue.json` to queue them.
+* **Simulation queue** (Telemetry ▸ Queue): **+ Queue** adds every current input as an item; change anything
+  (geometry, material, mesh, press, advanced) and add again, then **▶ Run queue**. Double-click a pending item to load
+  it into the configuration, edit it and **Update**; duplicate, reorder, re-run or remove items from their menu.
+  Multi-run can add its values to the queue instead of running them. **⋯** stops after the current item, skips it,
+  adds setup files, saves / opens a queue. Finished items are listed in RUNS like any other run; the configuration is
+  locked while the queue runs and put back afterwards. The queue is saved automatically
+  (`%AppData%\ImpressionFEA\queue.ifea-queue.json`).
+* **Layout**: four panels (configuration, results, telemetry, solver log). Drag a handle to resize; double-click it
+  to collapse or expand the panel. **Pop out chart** opens the load / fill chart in its own window. Double-click a
+  curve on the chart to load that run at that increment. Fits a 1344 × 756 window (70 % of 1080p).
 * **Setups** (`*.ifea.json`, see `RunSettings`): **Save setup… / Open setup…** store every input, including the
   STEP path (relative when it sits beside the setup) and the chosen top die. They are plain JSON, so they are easy
   to version, diff or generate.
@@ -134,7 +148,8 @@ job is selected, the app watches the file: when you export again from CAD, a yel
   10 most recent runs keep full results; older ones keep their telemetry). Its curve is drawn bold on the chart.
   **Reset** clears all runs, overlays, results and the log for an unrelated job.
 * **Units**: US (in, ksi, tonf, °F; lengths and stresses to 3 decimals) is the default; Metric (mm, MPa, t, °C; 2
-  decimals) is one click away in the header. The solver, setups and CSV files always use mm, MPa, t and °C.
+  decimals) is one click away at the top of the configuration panel. The solver, setups and CSV files always use mm,
+  MPa, t and °C.
 * **Esc** aborts whatever is running: a solve, a multi-run, or a video / report export.
 * Save and export dialogs remember the last folder used for each kind of file.
 
@@ -154,12 +169,14 @@ job is selected, the app watches the file: when you export again from CAD, a yel
   ghost in 3D so interior arrows are visible). **Four views** shows Top, Front and Right (orthographic) with the
   interactive isometric view top-right. Every 3D view has an XYZ triad (X red, Y green, Z blue; Z = press axis).
 * **Playback**: first / previous / play-pause / next / last, loop and speed beside the increment slider.
-* **Export ▾**: PNG image; **WebM video** of the ram descent (view only, view + telemetry, or the whole window;
+* **Export results ▾** (green, right of the execution bar): PNG image; **WebM video** of the ram descent (view only, view + telemetry, or the whole window;
   optionally with the telemetry CSV) via FFmpeg if installed (`winget install BtbN.FFmpeg.LGPL.Shared.9.0`), else a
   PNG frame sequence; **deformed part** as binary STL or PLY with result colours (full part: symmetric 3D models are
   mirrored, 2D sections revolved or extruded); and a **report**: a folder with a self-contained `report.html`
   (assumptions, setup, key results, chart, every field at die closure, descent stages, telemetry table, run
-  comparison), plus `telemetry.csv`, the setup, the solver log, STL / PLY and optionally the video.
+  comparison), plus `telemetry.csv`, the setup, the solver log, STL / PLY and optionally the video. A **comparison
+  report** of several runs adds a comparison page (one column per run, overlaid curves, sweep chart, final shapes)
+  before each run's report. Reports print compactly; every figure is also saved as a high-resolution PNG.
 
 ### Mesh terminology
 
@@ -174,7 +191,13 @@ job is selected, the app watches the file: when you export again from CAD, a yel
 
 * **Formulation**: rigid-viscoplastic flow formulation (Kobayashi–Oh–Altan). Axisymmetric (gear blank, flanged
   shaft, upset block) or plane-strain (connecting-rod shank section) half-models.
-* **Material**: isothermal `σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ` with `C(T) = C_ref·exp(−β(T−T_ref))`. The presets are
+* **Material**: isothermal `σ̄ = C(T)·(ε₀+ε̄)ⁿ·ε̄̇ᵐ` with `C(T) = C_ref·exp(−β(T−T_ref))`. 25 built-in materials in
+  families (carbon steels and AISI 4140, stainless steels, D2 tool steel, wrought aluminium including 6061 / 6063,
+  coppers and brasses, modelling plasticine), each starting at a nominal forging temperature; add your own fits in `Documents\ImpressionFEA\materials.json`
+  (**My materials…** under the material list creates it with an example, **Reload** reads it). Where a grade (or the
+  closest listed grade) is in Altan, Ngaile & Shen (ASM 2005) Tables 4.7–4.9, its constants are fitted to those
+  tables (β from C against temperature, m at the nominal temperature, n from C against strain, C_ref matching the
+  table at ε ≈ 0.5); the others are
   representative handbook-level coefficients, not certified material data. A warning is logged outside each
   preset's calibrated temperature window.
 * **Elements**: 4-node quads with 2×2 Gauss for the deviatoric term and 1-point reduced integration for the

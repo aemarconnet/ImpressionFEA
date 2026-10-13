@@ -310,7 +310,7 @@ public sealed class FieldViewport : FrameworkElement
         outline.Freeze();
         if (!ShowField) dc.DrawGeometry(BilletFlat, null, outline);
 
-        if (ShowMesh)
+        if (ShowMesh && FlowLines is null) // grain flow: fibre lines only, the mesh would read as fibres
         {
             var geo = new StreamGeometry();
             var meshVisible = ClipFilter(s);

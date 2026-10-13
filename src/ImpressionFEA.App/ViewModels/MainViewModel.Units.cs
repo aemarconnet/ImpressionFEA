@@ -91,7 +91,7 @@ public sealed partial class MainViewModel
         RaiseWorkpiece();
         foreach (var a in LoadPlot.Axes)
         {
-            if (a.Key == "stroke") a.Title = "Ram stroke (" + U.Length + ")";
+            if (a.Key == "stroke") a.Title = StrokeAxisTitle;
             else if (a.Key == "load") a.Title = "Press load (" + U.Load + ")";
         }
 

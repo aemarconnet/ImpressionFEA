@@ -87,6 +87,23 @@ public sealed class MultiRunDialog : Window
             DialogResult = true;
         };
         var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 84, Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(8, 0, 0, 0) };
+        var queue = new Button
+        {
+            Content = "Add to queue", MinWidth = 110, Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 8, 0),
+            ToolTip = "Add one queue item per value instead of running now: edit any item (any input), then Run queue",
+        };
+        queue.Click += (_, _) =>
+        {
+            if (Values.Count == 0)
+            {
+                MessageBox.Show(this, "Enter at least one value.", Title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            ToQueue = true;
+            DialogResult = true;
+        };
+        buttons.Children.Add(queue);
         buttons.Children.Add(ok);
         buttons.Children.Add(cancel);
         panel.Children.Add(buttons);
@@ -98,6 +115,9 @@ public sealed class MultiRunDialog : Window
     }
 
     public SweepParameter Parameter => (SweepParameter)_param.SelectedItem;
+
+    /// <summary>The values go to the simulation queue instead of being run now.</summary>
+    public bool ToQueue { get; private set; }
 
     public IReadOnlyList<string> Values => _values.Text.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 

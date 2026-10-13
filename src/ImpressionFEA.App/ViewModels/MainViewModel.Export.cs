@@ -92,6 +92,48 @@ public sealed partial class MainViewModel
 
     public double PartLength => ShownPartLength;
 
+    /// <summary>
+    /// A 2D result drawn in the 3D view (revolved, or extruded for plane strain): element edges, die contact, the section
+    /// offset and iso-clipping belong to true 3D meshes and are off here (the 2D section view shows mesh and contact).
+    /// </summary>
+    public bool IsRevolved2D => _is3D && ActiveDie3D is null;
+
+    /// <summary>Something to export (results in the viewport or stored runs) and nothing running.</summary>
+    public bool CanExport => (HasResults || HasRuns) && !IsRunning && !IsSweeping && !IsExporting;
+
+    /// <summary>Analysis type of the current inputs, as worded in reports.</summary>
+    public string AnalysisText => _analysis3D
+        ? "3D (" + _selectedDie3D.Symmetry + " model)"
+        : _selectedDie.IsPlaneStrain ? "2D plane strain" : "2D axisymmetric";
+
+    /// <summary>Press capacity of the current inputs, t.</summary>
+    public double PressCapacityTonnes => _pressCapacity;
+
+    /// <summary>The run whose results are in the viewport (null: none, e.g. inputs changed since).</summary>
+    public RunRecord? ShownRun => _shown;
+
+    /// <summary>Loads a stored run into the viewport, slider and chart while exporting (selecting a run is locked then).</summary>
+    public void ShowRunForExport(RunRecord run)
+    {
+        if (!run.CanShow) throw new InvalidOperationException($"The full results of {run.Label} were released to save memory.");
+        ShowRun(run);
+    }
+
+    /// <summary>Puts back the run that was in the viewport before an export (or the setup preview when there was none).</summary>
+    public void RestoreShownRun(RunRecord? run)
+    {
+        if (run is { CanShow: true } && Runs.Contains(run))
+        {
+            if (run != _shown) ShowRun(run);
+            return;
+        }
+
+        if (_shown is null) return;
+        ResetResults();
+        State = RunState.Idle;
+        BuildPreview();
+    }
+
     private void AppendRunLog(string text)
     {
         if (_runLog.Length > 8_000_000) _runLog.Remove(0, _runLog.Length / 2);

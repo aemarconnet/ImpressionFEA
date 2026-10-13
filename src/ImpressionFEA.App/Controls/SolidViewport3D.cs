@@ -92,7 +92,6 @@ public sealed partial class SolidViewport3D : Grid
     private readonly ColorBar _bar = new() { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 30, 12, 0), Width = 84 };
     private readonly Material _fieldMaterial;
     private readonly Material _plainMaterial;
-    private readonly Material _dieMaterial;
     private readonly Material _dieEdgeMaterial;
 
     private Point3D _target;
@@ -140,7 +139,6 @@ public sealed partial class SolidViewport3D : Grid
         strip.Freeze();
         _fieldMaterial = Frozen(new DiffuseMaterial(strip));
         _plainMaterial = Frozen(new MaterialGroup { Children = { new DiffuseMaterial(new SolidColorBrush(PlainColor)), new SpecularMaterial(new SolidColorBrush(Color.FromRgb(0x50, 0x50, 0x50)), 30) } });
-        _dieMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(DieColor)));
         _dieEdgeMaterial = Frozen(new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(0x1E, 0x24, 0x2C))));
 
         var lights = new Model3DGroup();
@@ -724,11 +722,14 @@ public sealed partial class SolidViewport3D : Grid
         var die = Die;
         bool plane = die?.IsPlaneStrain == true;
         bool cut = CutAway && !plane;
-        double a0 = cut ? Math.PI / 4 : 0, a1 = cut ? 2 * Math.PI - Math.PI / 4 : 2 * Math.PI;
+        // Cut-away of a revolved 2D result: a 90° wedge is removed, facing the viewer for the default section axis (Y);
+        // the X axis turns it a quarter turn, Flip a half turn.
+        double phase = (CutAxis == CutPlaneAxis.X ? -Math.PI / 2 : 0) + (CutFlip ? Math.PI : 0);
+        double a0 = cut ? phase + Math.PI / 4 : 0, a1 = cut ? phase + 2 * Math.PI - Math.PI / 4 : 2 * Math.PI;
         int segs = cut ? FullSegments * 3 / 4 : FullSegments;
 
         var snap = Snapshot as StepSnapshot;
-        if (snap is not null)
+        if (snap is not null && PartVisible)
         {
             var mesh = new MeshGeometry3D();
             bool field = ShowField;
@@ -737,7 +738,8 @@ public sealed partial class SolidViewport3D : Grid
             if (plane) BuildExtrudedPart(mesh, snap, t, PartLength, te);
             else BuildRevolvedPart(mesh, snap, t, a0, a1, segs, cut, te);
             mesh.Freeze();
-            var m = new GeometryModel3D(mesh, field ? _fieldMaterial : _plainMaterial) { BackMaterial = field ? _fieldMaterial : _plainMaterial };
+            var mat = Translucent(field ? _fieldMaterial : _plainMaterial, PartOpacity);
+            var m = new GeometryModel3D(mesh, mat) { BackMaterial = mat };
             m.Freeze();
             group.Children.Add(m);
             if (GrainFlow && FlowLines is { Count: > 0 } flow && (plane || cut))
@@ -750,15 +752,20 @@ public sealed partial class SolidViewport3D : Grid
 
         if (die is not null && ShowDies)
         {
-            var dm = new MeshGeometry3D();
             double gap = snap?.DieGap ?? 0;
             double ext = die.ViewExtent;
             const double block = 10; // die block thickness behind the deepest impression point, mm
             double baseLow = die.Bottom.HeightRange(0, ext).Min - block;
             double baseHigh = die.TopClosed.HeightRange(0, ext).Max + gap + block;
             var edgeSegs = new List<Point3D>();
-            foreach (var (surf, off, bas) in new[] { (die.Bottom, 0.0, baseLow), (die.TopClosed, gap, baseHigh) })
+            var dieModels = new List<GeometryModel3D>();
+            foreach (var (surf, off, bas, visible, opacity) in new[]
             {
+                (die.Bottom, 0.0, baseLow, BottomDieVisible, BottomDieOpacity),
+                (die.TopClosed, gap, baseHigh, TopDieVisible, TopDieOpacity),
+            })
+            {
+                if (!visible) continue;
                 var prof = new List<Point>();
                 foreach (var p in surf.Points)
                 {
@@ -768,21 +775,25 @@ public sealed partial class SolidViewport3D : Grid
                 prof.Add(new Point(ext, surf.HeightAt(ext) + off));
                 prof.Add(new Point(ext, bas));
                 prof.Add(new Point(0, bas));
+                var dm = new MeshGeometry3D();
                 if (plane) ExtrudeProfile(dm, prof, PartLength);
                 else RevolveProfile(dm, prof, a0, a1, segs);
                 if (ShowDieEdges) ProfileEdges(edgeSegs, prof, plane, a0, a1, segs, PartLength);
+                dm.Freeze();
+                byte alpha = (byte)Math.Clamp(255 * opacity, 10, 255);
+                var dieMat = Frozen(new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(alpha, DieColor.R, DieColor.G, DieColor.B))));
+                var dmodel = new GeometryModel3D(dm, dieMat) { BackMaterial = dieMat };
+                dmodel.Freeze();
+                dieModels.Add(dmodel);
             }
 
-            dm.Freeze();
             if (edgeSegs.Count > 0)
             {
-                var b = dm.Bounds;
-                group.Children.Add(EdgeTubes(edgeSegs, 1.1e-3 * Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ), default, null));
+                var vb = ViewBounds; // the 2D section frame: half-width (radius) by height
+                group.Children.Add(EdgeTubes(edgeSegs, 1.1e-3 * Math.Sqrt(4 * vb.Width * vb.Width + vb.Height * vb.Height), default, null));
             }
 
-            var dmodel = new GeometryModel3D(dm, _dieMaterial) { BackMaterial = _dieMaterial };
-            dmodel.Freeze();
-            group.Children.Add(dmodel); // translucent last
+            foreach (var dmodel in dieModels) group.Children.Add(dmodel); // translucent dies last, as in the 3D view
         }
 
         group.Freeze();
@@ -930,7 +941,7 @@ public sealed partial class SolidViewport3D : Grid
                 var model = new GeometryModel3D(g, mat) { BackMaterial = mat };
                 model.Freeze();
                 group.Children.Add(model);
-                if (ShowEdges && !arrows && !grainCut) group.Children.Add(EdgeOverlay(g));
+                if (ShowEdges && !arrows && !GrainFlow) group.Children.Add(EdgeOverlay(g)); // grain flow: never the mesh
             }
         }
 

@@ -3,6 +3,39 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
+## Unreleased
+- **Simulation queue** (Telemetry ▸ Queue): add the current setup (**+ Queue** or **+ Add current setup**), change any
+  input and add again, then **▶ Run queue**. Items can be loaded back into the configuration, edited and updated,
+  duplicated, reordered, re-run or removed; Multi-run can add its values to the queue instead of running now; setup
+  files can be added (or dropped on the window). Stop after the current item, skip the current item; Abort / Esc
+  stops the queue. Finished items appear in RUNS. The queue is saved automatically and can be saved / opened as
+  `*.ifea-queue.json`.
+- **Drag and drop**: drop a STEP assembly to import it, a setup to open it, several setups or a queue file to queue
+  them.
+- **Material library**: 25 materials in families (carbon steels and AISI 4140, stainless steels, D2 tool steel,
+  wrought aluminium incl. 6061 / 6063, coppers and brasses, modelling plasticine), grouped in the material list.
+  Where the grade or a close grade is listed in Altan, Ngaile & Shen, *Cold and Hot Forging* (ASM 2005), Tables
+  4.7–4.9, the constants are fitted to those tables; the rest are representative. Every material states its data
+  source (material tooltip, and a "Material data" row in reports). Changes against 0.8.1: AISI 4140 flow stress
+  about −5 % at 1150 °C; 6061-T6 and C11000 unchanged.
+  Choosing a material sets the temperature to its nominal forging temperature (the field now updates too).
+  Your own materials in Documents\ImpressionFEA\materials.json (**My materials…**, **Reload**; optional `source`).
+- **Layout**: fits a 1344 × 756 window (70 % of 1080p). Units moved to the configuration panel; Open / Save setup and
+  STEP import are under **File ▾**; **Export results** is a green button at the right of the execution bar; Runs and
+  Queue are tabs under the chart; read-outs in two columns. Double-click a panel's drag handle to collapse or expand
+  it (configuration, telemetry, solver log, run lists).
+- **Pop-out chart**: the load / fill chart in its own resizable window; close it to dock it back.
+- **Telemetry chart**: x axis is the die position from closure (0 = dies closed, on the right), so overlaid runs line
+  up at closure. Double-click a curve to load that run at that increment and select it in RUNS.
+- **Comparison report** (Export ▸, or Compare… in RUNS): a comparison page (one column per run, the inputs that
+  differ, best values highlighted, overlaid curves, a sweep chart when one input varies, final shapes side by side)
+  followed by each run's report, each in its own folder with a standalone report. Reports print compactly (about two
+  pages per run) and save every figure as a high-resolution PNG.
+- 2D results in the 3D view: workpiece and die visibility / opacity work (the top die is translucent by default, as
+  for 3D results, so the part is no longer hidden under an opaque die); the cut-away follows the section axis and
+  Flip. Options that only apply to 3D meshes (element edges, die contact, section offset) are greyed out with a note.
+- Grain flow never shows the element mesh (2D and 3D).
+
 ## 0.8.1
 - **Nodal / Element** colouring toggle next to the results list (as in SOLIDWORKS Simulation): Nodal averages the
   element values to the nodes (smooth contours); Element paints every element in one flat colour from its own value,

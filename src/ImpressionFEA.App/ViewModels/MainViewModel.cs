@@ -106,7 +106,9 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         _dispatcher = Application.Current.Dispatcher;
         DieSets = DiePresets.All;
         DieSets3D = new ObservableCollection<DieSet3D>(DiePresets3D.All);
-        Materials = MaterialPresets.All;
+        Materials = MaterialLibrary.Load(out var materialErrors);
+        MaterialsView = GroupedMaterials(Materials);
+        foreach (var e in materialErrors) _logQueue.Enqueue("MATERIALS: " + e);
         Fields =
         [
             new(ResultField.VonMisesStress, "Von Mises stress σ̄", "MPa"),
@@ -117,7 +119,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             new(ResultField.EffectiveStrain, "Grain flow (fibre lines)", "–", GrainFlow: true),
         ];
         _selectedField = Fields[0];
-        _selectedMaterial = Materials[0];
+        _selectedMaterial = MaterialPresets.Steel4140;
         _temperature = _selectedMaterial.DefaultTemperature;
         _selectedDie = DieSets[1];
         _selectedDie3D = DieSets3D[0];
@@ -130,6 +132,13 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             _cts?.Cancel();
         }, () => IsRunning || IsSweeping);
         LoadPlot = BuildPlot();
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(HasResults) or nameof(HasRuns) or nameof(IsExporting) or nameof(CanEdit)) OnPropertyChanged(nameof(CanExport));
+            if (e.PropertyName is nameof(IsExporting) or nameof(CanEdit)) OnPropertyChanged(nameof(CanEditQueue));
+            if (e.PropertyName is nameof(Is3D) or nameof(ActiveDie3D)) OnPropertyChanged(nameof(IsRevolved2D));
+        };
+        InitQueue();
 
         _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, (_, _) => Tick(), _dispatcher);
         _timer.Start();
@@ -149,7 +158,33 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     /// <summary>3D presets plus die sets imported from STEP during this session.</summary>
     public ObservableCollection<DieSet3D> DieSets3D { get; }
 
-    public IReadOnlyList<MaterialPreset> Materials { get; }
+    public IReadOnlyList<MaterialPreset> Materials { get; private set; }
+
+    /// <summary>The materials grouped by family, for the material list.</summary>
+    public System.ComponentModel.ICollectionView MaterialsView { get; private set; }
+
+    private static System.ComponentModel.ICollectionView GroupedMaterials(IReadOnlyList<MaterialPreset> list)
+    {
+        var view = new System.Windows.Data.ListCollectionView(list.ToList());
+        view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(MaterialPreset.Family)));
+        return view;
+    }
+
+    /// <summary>Re-reads the user materials file (Documents\ImpressionFEA\materials.json) and keeps the selection by name.</summary>
+    public ICommand ReloadMaterialsCommand => new RelayCommand(() =>
+    {
+        string current = _selectedMaterial.Name;
+        Materials = MaterialLibrary.Load(out var errors);
+        MaterialsView = GroupedMaterials(Materials);
+        foreach (var e in errors) _logQueue.Enqueue("MATERIALS: " + e);
+        OnPropertyChanged(nameof(Materials));
+        OnPropertyChanged(nameof(MaterialsView));
+        var keep = Materials.FirstOrDefault(m => m.Name == current) ?? MaterialPresets.Steel4140;
+        _selectedMaterial = keep;
+        OnPropertyChanged(nameof(SelectedMaterial));
+        int user = Materials.Count(m => m.IsUser);
+        StatusText = F($"Materials reloaded: {Materials.Count} ({user} from materials.json){(errors.Count > 0 ? ", see the log for skipped entries" : "")}.");
+    }, () => CanEdit);
 
     public IReadOnlyList<FieldOption> Fields { get; }
 
@@ -221,8 +256,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         set
         {
             if (!Set(ref _selectedMaterial, value)) return;
+            // Every material starts at its nominal forging temperature (inside its window); the input shows the
+            // display-unit twin, so both must be raised or the field keeps the previous material's value.
             _temperature = value.DefaultTemperature;
             OnPropertyChanged(nameof(Temperature));
+            OnPropertyChanged(nameof(TemperatureU));
             RefreshDerived();
         }
     }
@@ -786,6 +824,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         OnPropertyChanged(nameof(CanScrub));
         _scrubIndex = -1;
         ScrubIndex = ScrubMaximum;
+        Tick(); // flush the queued log lines so the run keeps its complete log
         AddRunRecord(result, settings, _clock.Elapsed);
         SaveJobSetup();
         Tick();
@@ -926,7 +965,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         };
         model.Axes.Add(new LinearAxis
         {
-            Position = AxisPosition.Bottom, Key = "stroke", Title = "Ram stroke (" + U.Length + ")", Minimum = 0, MajorGridlineStyle = LineStyle.Solid, MajorGridlineColor = grid,
+            Position = AxisPosition.Bottom, Key = "stroke", Title = StrokeAxisTitle, Maximum = 0, MajorGridlineStyle = LineStyle.Solid, MajorGridlineColor = grid,
         });
         model.Axes.Add(new LinearAxis
         {
@@ -953,10 +992,16 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         return model;
     }
 
+    /// <summary>
+    /// The chart's x axis is the top-die position relative to die closure (−gap): every run ends at 0 on the right
+    /// whatever its starting gap, so overlaid runs line up at closure.
+    /// </summary>
+    private static string StrokeAxisTitle => "Die position from closure (" + U.Length + ")";
+
     private void AddPoint(ForgingSnapshot s)
     {
-        _loadSeries.Points.Add(new DataPoint(U.L(s.Stroke), U.LoadFromNewton(s.LoadNewton)));
-        _fillSeries.Points.Add(new DataPoint(U.L(s.Stroke), s.FillPercent));
+        _loadSeries.Points.Add(new DataPoint(-U.L(s.DieGap), U.LoadFromNewton(s.LoadNewton)));
+        _fillSeries.Points.Add(new DataPoint(-U.L(s.DieGap), s.FillPercent));
     }
 
     private void RebuildSeries()
@@ -978,7 +1023,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     private void UpdateCursor()
     {
-        _cursor.X = U.L(_currentSnapshot?.Stroke ?? 0);
+        _cursor.X = _currentSnapshot is { } s ? -U.L(s.DieGap) : 0;
         _plotDirty = true;
     }
 
