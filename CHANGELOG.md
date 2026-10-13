@@ -3,7 +3,7 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
-## Unreleased
+## 0.8.2
 - **Simulation queue** (Telemetry ▸ Queue): add the current setup (**+ Queue** or **+ Add current setup**), change any
   input and add again, then **▶ Run queue**. Items can be loaded back into the configuration, edited and updated,
   duplicated, reordered, re-run or removed; Multi-run can add its values to the queue instead of running now; setup
