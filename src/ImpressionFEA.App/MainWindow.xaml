@@ -170,6 +170,9 @@
                                         </Border>
                                         <TextBlock Text="{Binding DieDescription}" Style="{StaticResource Note}" />
                                         <TextBlock Text="{Binding SymmetryText}" Style="{StaticResource Note}" />
+                                        <c:NumericField Label="Flash land thickness" Unit="{Binding LengthUnit}" Value="{Binding FlashThicknessU}" Quantity="Length" Minimum="0.3" Maximum="8"
+                                                        Format="{Binding FineLengthFormat}" Visibility="{Binding HasFlashParameter, Converter={StaticResource BoolToVis}}"
+                                                        ToolTip="Closed gap over the flash land (rebuilds the dies; every other input is kept). Thinner flash = better fill, higher load." />
                                         <StackPanel Visibility="{Binding BilletEditable, Converter={StaticResource BoolToVis}}">
                                             <c:NumericField Label="{Binding RadiusLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletRadiusU}" Quantity="Length" Minimum="0.5" Maximum="1000" Format="{Binding LengthFormat}" />
                                             <c:NumericField Label="Billet height H" Unit="{Binding LengthUnit}" Value="{Binding BilletHeightU}" Quantity="Length" Minimum="1" Maximum="3000" Format="{Binding LengthFormat}" IsEnabled="{Binding HeightEnabled}" />

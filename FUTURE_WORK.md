@@ -11,6 +11,12 @@ estimate of the work it takes in this code base.
 
 ## Defects and die fill
 
+### Thin-flash resolution in 3D — Medium
+Very thin flash (under about 1 mm at 2.5–3 mm elements) loses a few per cent of volume in 3D remeshing, which
+understates the load difference between flash thicknesses (demo 8: 0.8 mm vs 3.2 mm flash gives +8 % peak load,
+6.7 % volume lost on the thin side). Anisotropic or boundary-layer refinement in the flash gap, plus a volume
+correction on remesh, would make flash studies quantitative.
+
 ### Fold / lap detection — Medium
 Flag where free surface folds back onto itself or two free surfaces meet: boundary nodes going from free surface into
 self-contact, and sharp reversals of the outline between increments. Show the fold as a marker on the part and in the

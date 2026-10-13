@@ -88,6 +88,12 @@ public sealed class DieSet3D
 
     public required double RecommendedStrokeIncrement { get; init; }
 
+    /// <summary>Flash-land thickness of a parametric die set, mm (null: not a parameter of this die set).</summary>
+    public double? FlashThickness { get; init; }
+
+    /// <summary>Builds the same die set with another flash-land thickness (mm); null when not parametric.</summary>
+    public Func<double, DieSet3D>? WithFlashThickness { get; init; }
+
     public int SymmetryFactor => Symmetry switch { Symmetry3D.Quarter => 4, Symmetry3D.Half => 2, _ => 1 };
 
     public bool SymmetricX => Symmetry == Symmetry3D.Quarter;

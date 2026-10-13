@@ -23,6 +23,9 @@ public enum SweepParameter
 
     /// <summary>Die-only imports: plan position x of the user workpiece.</summary>
     WorkpieceOffsetX,
+
+    /// <summary>Parametric 3D presets (hex bolt head): closed flash-land thickness.</summary>
+    FlashThickness,
 }
 
 /// <summary>Workflow features: setups, STEP import / re-import, advanced settings, run history, multi-run and demos.</summary>
@@ -264,6 +267,7 @@ public sealed partial class MainViewModel
             BilletRadius = src is null ? _billetRadius : null,
             BilletHeight = src is null ? _billetHeight : null,
             BilletLength = src is null ? _billetLength : null,
+            FlashThickness = src is null && _analysis3D ? _selectedDie3D.FlashThickness : null,
             ElementSize = _elementSize,
             StrokeIncrement = _strokeIncrement,
             RamSpeed = _ramSpeed,
@@ -307,6 +311,7 @@ public sealed partial class MainViewModel
             if (die is null) return $"Unknown 3D die preset \"{s.Preset}\".";
             Analysis3D = true;
             SelectedDie3D = die;
+            if (s.FlashThickness is { } ft && HasFlashParameter) FlashThickness = ft;
         }
         else
         {
@@ -348,6 +353,41 @@ public sealed partial class MainViewModel
         RefreshDerived();
         return null;
     }
+
+    /// <summary>The selected 3D preset has a flash-land thickness parameter (hex bolt head).</summary>
+    public bool HasFlashParameter => _analysis3D && _selectedDie3D.WithFlashThickness is not null;
+
+    /// <summary>
+    /// Flash-land thickness of the selected parametric 3D preset, mm. Changing it rebuilds the die set and keeps every
+    /// other input (billet, material, mesh, press), so a sweep compares like with like.
+    /// </summary>
+    public double FlashThickness
+    {
+        get => _analysis3D ? _selectedDie3D.FlashThickness ?? 0 : 0;
+        set
+        {
+            if (!HasFlashParameter || value <= 0 || Math.Abs(value - FlashThickness) < 1e-9) return;
+            var old = _selectedDie3D;
+            var rebuilt = old.WithFlashThickness!(value);
+            // Insert, select, then remove: replacing the selected item in place makes the ComboBox push a null selection.
+            DieSets3D.Insert(DieSets3D.IndexOf(old), rebuilt);
+            _keepSettings = true;
+            try
+            {
+                SelectedDie3D = rebuilt;
+            }
+            finally
+            {
+                _keepSettings = false;
+            }
+
+            DieSets3D.Remove(old);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(FlashThicknessU));
+        }
+    }
+
+    public double FlashThicknessU { get => U.L(FlashThickness); set => FlashThickness = U.LToMm(value); }
 
     private static CadBody PickBody(ForgingAssembly asm, int? body) =>
         body is { } b && (asm.DieA.Index + 1 == b || asm.DieB.Index + 1 == b) ? (asm.DieA.Index + 1 == b ? asm.DieA : asm.DieB) : asm.SuggestedTop;
@@ -548,7 +588,8 @@ public sealed partial class MainViewModel
     {
         string geo = s.StepFile is { } f ? Path.GetFileNameWithoutExtension(f) : s.Preset ?? "";
         string mat = s.Material.Split(' ') is { Length: > 1 } parts ? parts[0] + " " + parts[1] : s.Material;
-        return $"{geo} · {mat} · {U.Tf(s.Temperature)} · m {s.Friction.ToString("F2", Inv)} · v {U.L(s.RamSpeed).ToString("F1", Inv)}";
+        return $"{geo} · {mat} · {U.Tf(s.Temperature)} · m {s.Friction.ToString("F2", Inv)} · v {U.L(s.RamSpeed).ToString("F1", Inv)}"
+            + (s.FlashThickness is { } t ? " · flash " + U.L(t).ToString(U.FineLengthFormat, Inv) : "");
     }
 
     /// <summary>Puts the shown runs' curves on the chart (behind the live run).</summary>
@@ -697,6 +738,7 @@ public sealed partial class MainViewModel
         SweepParameter.ElementSize => (U.Length, string.Join(", ", new[] { 1.25, 1.0, 0.8 }.Select(k => U.L(_elementSize * k).ToString(U.FineLengthFormat, Inv)))),
         SweepParameter.StrokeIncrement => (U.Length, string.Join(", ", new[] { 1.0, 0.5, 0.25 }.Select(k => U.L(_strokeIncrement * k).ToString(U.FineLengthFormat, Inv)))),
         SweepParameter.WorkpieceOffsetX => (U.Length, string.Join(", ", new[] { 0.0, 5, 10, 15 }.Select(mm => U.L(mm).ToString(U.LengthFormat, Inv)))),
+        SweepParameter.FlashThickness => (U.Length, string.Join(", ", new[] { 0.5, 1.0, 1.5, 2.0 }.Select(k => U.L((FlashThickness > 0 ? FlashThickness : 1.6) * k).ToString(U.FineLengthFormat, Inv)))),
         _ => ("", "AISI 4140, 6061-T6, C11000, Modeling plasticine"),
     };
 
@@ -777,6 +819,10 @@ public sealed partial class MainViewModel
             case SweepParameter.RamSpeed: RamSpeedU = v; break;
             case SweepParameter.ElementSize: ElementSizeU = v; break;
             case SweepParameter.StrokeIncrement: StrokeIncrementU = v; break;
+            case SweepParameter.FlashThickness:
+                if (!HasFlashParameter) return "Flash thickness can only be swept for a parametric 3D die set (Hex bolt head).";
+                FlashThicknessU = v;
+                break;
             case SweepParameter.WorkpieceOffsetX:
                 if (!IsUserBillet) return "Workpiece position can only be swept for die-only imports.";
                 WorkpieceOffsetXU = v;
@@ -839,6 +885,7 @@ public sealed partial class MainViewModel
                 SweepParameter.RamSpeed => U.L(x).ToString(U.LengthFormat, Inv),
                 SweepParameter.ElementSize or SweepParameter.StrokeIncrement => U.L(x).ToString(U.FineLengthFormat, Inv),
                 SweepParameter.WorkpieceOffsetX => U.L(x).ToString(U.LengthFormat, Inv),
+                SweepParameter.FlashThickness => U.L(x).ToString(U.FineLengthFormat, Inv),
                 _ => v,
             };
         }));

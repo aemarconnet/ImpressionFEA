@@ -28,6 +28,7 @@ public static class RunComparison
         new("Analysis", "", s => s.Analysis),
         new("Geometry", "", s => s.StepFile is { } f ? Path.GetFileName(f) + (s.TopDieBody is { } b ? string.Format(Inv, " (top die body {0})", b) : "") : s.Preset ?? "—"),
         new("Workpiece", "", Workpiece),
+        new("Flash thickness", U.Length, s => s.FlashThickness is { } f ? Fine(f) : "—", s => s.FlashThickness is { } f ? U.L(f) : null),
         new("Material", "", s => s.Material),
         new("Temperature", U.Temperature, s => U.Tf(s.Temperature), s => U.T(s.Temperature)),
         new("Friction m", "", s => s.Friction.ToString("F2", Inv), s => s.Friction),

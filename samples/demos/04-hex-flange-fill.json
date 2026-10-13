@@ -1,24 +1,24 @@
 {
-  "title": "4 · Hex flange: 3D die fill from CAD",
-  "level": "Intermediate · 3D · STEP import · ~40 s per run",
-  "summary": "A round bar upset into a hexagonal head: a non-axisymmetric part that only a 3D model can predict.",
+  "title": "4 · Hex bolt head: 3D die fill and flash",
+  "level": "Intermediate · 3D · built-in die set · a few minutes per run",
+  "summary": "A 1\" bar upset into the head of a 1\"-8 hex bolt (1-1/2\" across flats) with a 3/16\" flash land: a non-axisymmetric part that only a 3D model can predict.",
   "instructions": [
-    "1. The STEP file holds three bodies: bottom die (with a shank pocket), bar, top die (hex pocket). The bar is recognised as the workpiece because its centre of gravity lies between the dies.",
-    "2. Press Solve. With Cut-away on, the section shows the material flowing up into the hex.",
-    "3. Watch the fill curve: the round head reaches the flats first; the hex corners fill last, when the load climbs steeply.",
-    "4. Use Ctrl+5 (top view) and the slider to watch the corners fill. F refits the view.",
-    "5. Run its multi-run over temperature and compare the final fill and peak load: corner fill is what limits the process."
+    "1. The bottom die holds the Ø1\" × 3\" shank in a bore; the top die carries the hex head (3° draft) and a 3/16\" wide, 1/16\" thick flash land with a gutter beyond it. Full model; the dies are exact flat and cylindrical faces. The bar stands in the bore and its free end is upset into the head.",
+    "2. Press Solve. Turn Cut-away on (View ▾) to see the material flowing out of the bar into the hex.",
+    "3. Watch the fill curve: the round upset reaches the flats first; the hex corners fill last, as flash spreads over the land and the load climbs steeply.",
+    "4. Use Ctrl+5 (top view) and the slider to watch the corners fill and the flash form. F refits the view.",
+    "5. Run its multi-run over temperature and compare peak load and final fill: corner fill against flash load is the trade-off of the process."
   ],
   "setup": {
     "analysis": "3D",
-    "stepFile": "../sample_hexflange_3bodies.step",
+    "preset": "Hex bolt head 1\" (3D)",
     "material": "AISI 4140",
     "temperature": 1150,
     "friction": 0.3,
-    "elementSize": 4,
-    "strokeIncrement": 0.8,
+    "elementSize": 3,
+    "strokeIncrement": 0.5,
     "ramSpeed": 50,
-    "pressCapacity": 100
+    "pressCapacity": 200
   },
   "sweep": { "parameter": "Temperature", "values": [ "1050", "1150", "1250" ] }
 }

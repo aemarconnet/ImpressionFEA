@@ -136,6 +136,12 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         {
             if (e.PropertyName is nameof(HasResults) or nameof(HasRuns) or nameof(IsExporting) or nameof(CanEdit)) OnPropertyChanged(nameof(CanExport));
             if (e.PropertyName is nameof(IsExporting) or nameof(CanEdit)) OnPropertyChanged(nameof(CanEditQueue));
+            if (e.PropertyName is nameof(SelectedDie3D) or nameof(Analysis3D))
+            {
+                OnPropertyChanged(nameof(HasFlashParameter));
+                OnPropertyChanged(nameof(FlashThicknessU));
+            }
+
             if (e.PropertyName is nameof(Is3D) or nameof(ActiveDie3D))
             {
                 OnPropertyChanged(nameof(IsRevolved2D));

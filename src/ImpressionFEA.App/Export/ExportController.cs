@@ -266,7 +266,7 @@ public sealed class ExportController(MainWindow window, MainViewModel vm)
         c.FillChart = Chart(() => ReportCharts.FillOverlay(chartRuns), Path.Combine(img, "compare_fill.png"));
         if (runs.Count > 2 && RunComparison.SweepParameter(varied) is { } p)
         {
-            var points = runs.Select(r => (p.Value!(r.Settings)!.Value, r.PeakLoad, r.FinalFill)).ToList();
+            var points = runs.Where(r => p.Value!(r.Settings) is not null).Select(r => (p.Value!(r.Settings)!.Value, r.PeakLoad, r.FinalFill)).ToList();
             c.SweepParameter = p.Name;
             c.SweepChart = Chart(() => ReportCharts.Sweep(p.AxisTitle, points, c.Capacity), Path.Combine(img, "compare_sweep.png"));
         }

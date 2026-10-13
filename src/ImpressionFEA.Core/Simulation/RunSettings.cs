@@ -41,6 +41,9 @@ public sealed record RunSettings
 
     public double? BilletLength { get; init; }
 
+    /// <summary>Parametric 3D presets (hex bolt head): closed flash-land thickness, mm.</summary>
+    public double? FlashThickness { get; init; }
+
     public double ElementSize { get; init; }
 
     public double StrokeIncrement { get; init; }

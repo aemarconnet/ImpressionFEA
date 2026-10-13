@@ -7,7 +7,7 @@ public static class DiePresets3D
 {
     private static readonly double CotDraft = 1 / Math.Tan(7.0 * Math.PI / 180.0);
 
-    private static readonly Lazy<IReadOnlyList<DieSet3D>> Lazy = new(() => [ConnectingRod(), GearBlank(), SimpleUpsetBlock()]);
+    private static readonly Lazy<IReadOnlyList<DieSet3D>> Lazy = new(() => [ConnectingRod(), GearBlank(), SimpleUpsetBlock(), HexBoltHead()]);
 
     public static IReadOnlyList<DieSet3D> All => Lazy.Value;
 
@@ -51,6 +51,118 @@ public static class DiePresets3D
             RecommendedElementSize = 3.0,
             RecommendedStrokeIncrement = 0.6,
         };
+    }
+
+    /// <summary>
+    /// 1"-8 hex bolt head upset from 1" bar, full model (no symmetry). Top die: hex pocket 1-1/2" across flats (flats
+    /// parallel to x) × 39/64" deep with drafted walls, a flat flash land 3/16" wide around it, a 45° gutter step and
+    /// a flat outer face. Bottom die: flat face (the parting plane, z = 0) with a Ø1" shank bore 3" deep and a 45° entry
+    /// chamfer. Both dies are exact closed solids made of flat faces and long cylindrical facets (no height-field
+    /// sampling). Dimensions in mm; <paramref name="flashThickness"/> is the closed gap over the land.
+    /// </summary>
+    public static DieSet3D HexBoltHead(
+        double flashThickness = 1.6, double acrossFlats = 38.1, double headHeight = 15.5, double shankDiameter = 25.4,
+        double shankLength = 76.2, double flashWidth = 4.76, double draftDeg = 3)
+    {
+        double s = acrossFlats / 2, tf = flashThickness;
+        double rBore = shankDiameter / 2 + 0.3; // radial clearance so the bar drops into the bore
+        const double chamfer = 1.0, gutterDepth = 5, back = 20, segments = 120;
+        double sTop = s - (headHeight - tf) * Math.Tan(draftDeg * Math.PI / 180); // hex at the head top (drafted walls)
+        double sOut = s + flashWidth + gutterDepth + 12; // outer boundary of both dies (hexagonal plan)
+        double c30 = Math.Cos(Math.PI / 6), s30 = Math.Sin(Math.PI / 6);
+
+        // Plan outline: signed distance to the hexagon at the parting plane (negative inside).
+        double Hex(double x, double y) => Math.Max(Math.Abs(y), Math.Max(Math.Abs(x * c30 + y * s30), Math.Abs(x * c30 - y * s30))) - s;
+
+        // Hexagon (vertex on +x, so flats are parallel to x) of half across-flats h, at height z.
+        static Vec3[] HexRing(double h, double z) => [.. Enumerable.Range(0, 6).Select(k =>
+        {
+            double a = k * Math.PI / 3, r = h / Math.Cos(Math.PI / 6);
+            return new Vec3(r * Math.Cos(a), r * Math.Sin(a), z);
+        })];
+
+        // n points around a circle, or on a hexagon boundary at the same angles (so rings pair up into planar quads).
+        Vec3[] CircleRing(double r, double z) => [.. Enumerable.Range(0, (int)segments).Select(k =>
+        {
+            double a = 2 * Math.PI * k / segments;
+            return new Vec3(r * Math.Cos(a), r * Math.Sin(a), z);
+        })];
+        Vec3[] HexBoundaryRing(double h, double z) => [.. Enumerable.Range(0, (int)segments).Select(k =>
+        {
+            double a = 2 * Math.PI * k / segments;
+            double flat = Math.PI / 6 + Math.PI / 3 * Math.Floor(a / (Math.PI / 3)); // normal of the flat this ray meets
+            double r = h / Math.Cos(a - flat);
+            return new Vec3(r * Math.Cos(a), r * Math.Sin(a), z);
+        })];
+
+        var top = Stack(
+            new Vec3(0, 0, headHeight),
+            [HexRing(sTop, headHeight), HexRing(s, tf), HexRing(s + flashWidth, tf), HexRing(s + flashWidth + gutterDepth, tf + gutterDepth),
+             HexRing(sOut, tf + gutterDepth), HexRing(sOut, tf + gutterDepth + back)],
+            new Vec3(0, 0, tf + gutterDepth + back));
+        var bottom = Stack(
+            new Vec3(0, 0, -shankLength),
+            [CircleRing(rBore, -shankLength), CircleRing(rBore, -chamfer), CircleRing(rBore + chamfer, 0),
+             HexBoundaryRing(sOut, 0), HexBoundaryRing(sOut, -shankLength - back)],
+            new Vec3(0, 0, -shankLength - back));
+
+        double ext = sOut / c30;
+        return new DieSet3D
+        {
+            Name = "Hex bolt head 1\" (3D)",
+            Description = FormattableString.Invariant(
+                $"1\"-8 hex bolt: head {acrossFlats / 25.4:0.###}\" across flats × {headHeight / 25.4:0.###}\" ({draftDeg:0.#}° draft) in the top die, Ø{shankDiameter / 25.4:0.###}\" × {shankLength / 25.4:0.##}\" shank in the bottom-die bore, flash land {flashWidth / 25.4:0.###}\" wide × {tf / 25.4:0.###}\" thick. Full model, flat and cylindrical die faces, upset from bar."),
+            Bottom = new TriMeshDie(DieSide.Bottom, bottom),
+            TopClosed = new TriMeshDie(DieSide.Top, top),
+            Symmetry = Symmetry3D.None,
+            Billet = BilletShape.VerticalCylinder,
+            Outline = Hex,
+            XMin = -ext,
+            XMax = ext,
+            YMax = ext,
+            RecommendedRadius = shankDiameter / 2,
+            VolumeFactor = 1.08,
+            RecommendedElementSize = 3.0,
+            RecommendedStrokeIncrement = 0.5,
+            FlashThickness = tf,
+            WithFlashThickness = t => HexBoltHead(t, acrossFlats, headHeight, shankDiameter, shankLength, flashWidth, draftDeg),
+        };
+    }
+
+    /// <summary>
+    /// Closed solid from a stack of rings (same vertex count each) between two poles, like a surface of revolution:
+    /// fans at the poles, planar quads between rings. Oriented outward (flipped if the signed volume is negative).
+    /// </summary>
+    private static TriMeshSolid Stack(Vec3 poleStart, IReadOnlyList<Vec3[]> rings, Vec3 poleEnd)
+    {
+        int n = rings[0].Length;
+        var v = new List<Vec3> { poleStart };
+        foreach (var ring in rings) v.AddRange(ring);
+        v.Add(poleEnd);
+        int last = v.Count - 1;
+        int R(int ring, int k) => 1 + ring * n + (k % n);
+        var t = new List<int>();
+        for (int k = 0; k < n; k++) t.AddRange([0, R(0, k), R(0, k + 1)]);
+        for (int i = 0; i + 1 < rings.Count; i++)
+        {
+            for (int k = 0; k < n; k++)
+            {
+                int a = R(i, k), b = R(i + 1, k), c = R(i + 1, k + 1), d = R(i, k + 1);
+                t.AddRange([a, b, c, a, c, d]);
+            }
+        }
+
+        int lr = rings.Count - 1;
+        for (int k = 0; k < n; k++) t.AddRange([R(lr, k), last, R(lr, k + 1)]);
+
+        double vol6 = 0;
+        for (int i = 0; i < t.Count; i += 3) vol6 += v[t[i]].Dot(v[t[i + 1]].Cross(v[t[i + 2]]));
+        if (vol6 < 0)
+        {
+            for (int i = 0; i < t.Count; i += 3) (t[i + 1], t[i + 2]) = (t[i + 2], t[i + 1]);
+        }
+
+        return new TriMeshSolid([.. v], [.. t]);
     }
 
     /// <summary>

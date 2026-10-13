@@ -82,7 +82,7 @@ public sealed partial class MainViewModel
         nameof(StrokeIncrementU), nameof(RamSpeedU), nameof(TemperatureU), nameof(PressCapacityU), nameof(LengthUnit),
         nameof(SpeedUnit), nameof(TemperatureUnit), nameof(LoadUnit), nameof(LengthFormat), nameof(FineLengthFormat),
         nameof(LoadInputFormat), nameof(FieldLabelFactor), nameof(FieldLabelDecimals), nameof(VelocityUnitMm),
-        nameof(VelocityUnitName), nameof(FieldTitle),
+        nameof(VelocityUnitName), nameof(FieldTitle), nameof(FlashThicknessU),
     ];
 
     private void OnUnitsChanged()

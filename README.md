@@ -141,9 +141,10 @@ job is selected, the app watches the file: when you export again from CAD, a yel
   summary. The original value is restored afterwards, and Abort stops the batch.
 * **Demos**: curated, self-describing examples in `samples/demos/*.json`. Each has a setup, step-by-step
   instructions shown in the app, and a suggested multi-run. Instructors can add or edit demos without rebuilding
-  (Demos tab → Reload). The seven shipped demos cover an upset benchmark, the temperature window, ram speed / strain
-  rate sensitivity, 3D hex-flange fill from CAD, a material comparison including plasticine, the CAD re-import
-  loop, and die-only import with a user-defined workpiece. Demo values are written in mm, °C and mm/s.
+  (Demos tab → Reload). The eight shipped demos cover an upset benchmark, the temperature window, ram speed / strain
+  rate sensitivity, 3D die fill of a 1"-8 hex bolt head, a material comparison including plasticine, the CAD re-import
+  loop, die-only import with a user-defined workpiece, and the flash-thickness trade-off (fill against load) on the
+  hex bolt head. Demo values are written in mm, °C and mm/s.
 * **Compare runs**: click a run in RUNS to bring its full results back into the viewport, slider and read-outs (the
   10 most recent runs keep full results; older ones keep their telemetry). Its curve is drawn bold on the chart.
   **Reset** clears all runs, overlays, results and the log for an unrelated job.
@@ -218,7 +219,9 @@ job is selected, the app watches the file: when you export again from CAD, a yel
 * Same functional, material law, friction law and Newton scheme as 2D, on **linear tetrahedra** with an
   **averaged-nodal-pressure** (Bonet–Burton ANP) penalty for incompressibility, which removes the volumetric locking
   of linear tets.
-* **Dies** are height fields z = h(x, y) for the presets, or imported triangulated CAD solids (inside test by ray
+* **Dies** are height fields z = h(x, y) for most presets, exact closed solids of flat and cylindrical faces for the
+  **hex bolt head** preset (full model; its flash-land thickness is an input and a multi-run parameter), or imported
+  triangulated CAD solids (inside test by ray
   parity, closest-point contact on a bucket grid). **Symmetry planes** give half or quarter models; nodal frames from Gram–Schmidt combine
   symmetry and die constraints. Friction is applied as a vector on the tangential axes.
 * **Robustness**: contact placement is quality-aware. Nodes of degenerating tets choose between the closest die
