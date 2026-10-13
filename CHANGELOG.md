@@ -36,7 +36,7 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
   Flip. The top die is drawn as its impression surface (no grey block over the part) and the lighting defaults to
   Soft for 2D results (each kind keeps its own lighting). Options that only apply to 3D meshes (element edges, die
   contact, section offset) are greyed out with a note.
-- **Hex bolt head 1" (3D)** preset: 1"-8 hex bolt (1-1/2" across flats × 39/64" head, Ø1" × 3" shank in a
+- **Hex bolt head 1" (3D)** preset: 1"-8 hex bolt (1-1/2" across flats × 39/64" head, Ø1" × 1-1/2" shank in a
   bottom-die bore, 3/16" flash land), full model, dies built as exact flat and cylindrical faces. Its **flash-land
   thickness** is an input (Geometry), saved in setups, and a Multi-run parameter. Demo 4 now uses it (replaces the
   STEP hex flange); new **demo 8** sweeps the flash thickness (fill against load).

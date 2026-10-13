@@ -56,13 +56,13 @@ public static class DiePresets3D
     /// <summary>
     /// 1"-8 hex bolt head upset from 1" bar, full model (no symmetry). Top die: hex pocket 1-1/2" across flats (flats
     /// parallel to x) × 39/64" deep with drafted walls, a flat flash land 3/16" wide around it, a 45° gutter step and
-    /// a flat outer face. Bottom die: flat face (the parting plane, z = 0) with a Ø1" shank bore 3" deep and a 45° entry
+    /// a flat outer face. Bottom die: flat face (the parting plane, z = 0) with a Ø1" shank bore 1-1/2" deep and a 45° entry
     /// chamfer. Both dies are exact closed solids made of flat faces and long cylindrical facets (no height-field
     /// sampling). Dimensions in mm; <paramref name="flashThickness"/> is the closed gap over the land.
     /// </summary>
     public static DieSet3D HexBoltHead(
         double flashThickness = 1.6, double acrossFlats = 38.1, double headHeight = 15.5, double shankDiameter = 25.4,
-        double shankLength = 76.2, double flashWidth = 4.76, double draftDeg = 3)
+        double shankLength = 38.1, double flashWidth = 4.76, double draftDeg = 3)
     {
         double s = acrossFlats / 2, tf = flashThickness;
         double rBore = shankDiameter / 2 + 0.3; // radial clearance so the bar drops into the bore
