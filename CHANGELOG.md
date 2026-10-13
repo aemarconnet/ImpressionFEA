@@ -33,7 +33,9 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
   pages per run) and save every figure as a high-resolution PNG.
 - 2D results in the 3D view: workpiece and die visibility / opacity work (the top die is translucent by default, as
   for 3D results, so the part is no longer hidden under an opaque die); the cut-away follows the section axis and
-  Flip. Options that only apply to 3D meshes (element edges, die contact, section offset) are greyed out with a note.
+  Flip. The top die is drawn as its impression surface (no grey block over the part) and the lighting defaults to
+  Soft for 2D results (each kind keeps its own lighting). Options that only apply to 3D meshes (element edges, die
+  contact, section offset) are greyed out with a note.
 - Grain flow never shows the element mesh (2D and 3D).
 
 ## 0.8.1

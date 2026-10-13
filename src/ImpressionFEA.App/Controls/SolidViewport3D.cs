@@ -773,8 +773,15 @@ public sealed partial class SolidViewport3D : Grid
                 }
 
                 prof.Add(new Point(ext, surf.HeightAt(ext) + off));
-                prof.Add(new Point(ext, bas));
-                prof.Add(new Point(0, bas));
+                // The bottom die is drawn as a solid block (it reads as a die in cut-aways and never covers the part).
+                // The top die is only its impression surface, as for 3D results: a closed, translucent block would lay
+                // two or three grey layers over the part and darken it.
+                if (surf == die.Bottom)
+                {
+                    prof.Add(new Point(ext, bas));
+                    prof.Add(new Point(0, bas));
+                }
+
                 var dm = new MeshGeometry3D();
                 if (plane) ExtrudeProfile(dm, prof, PartLength);
                 else RevolveProfile(dm, prof, a0, a1, segs);

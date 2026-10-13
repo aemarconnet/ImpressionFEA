@@ -13,8 +13,22 @@ public sealed partial class MainViewModel
 
     public IReadOnlyList<ViewLighting> LightingOptions { get; } = Enum.GetValues<ViewLighting>();
 
-    /// <summary>3D view lighting; Shaded by default (Uniform = ambient only, colours exactly as on the colour bar).</summary>
-    public ViewLighting Lighting { get => _lighting; set => Set(ref _lighting, value); }
+    private ViewLighting _lighting2D = ViewLighting.Soft;
+
+    /// <summary>
+    /// 3D view lighting, kept separately for true 3D results (Shaded by default) and for 2D results shown revolved or
+    /// extruded (Soft by default: their large flat faces read brighter). Uniform = ambient only, colours exactly as on
+    /// the colour bar.
+    /// </summary>
+    public ViewLighting Lighting
+    {
+        get => IsRevolved2D ? _lighting2D : _lighting;
+        set
+        {
+            if (IsRevolved2D) Set(ref _lighting2D, value);
+            else Set(ref _lighting, value);
+        }
+    }
 
     private bool _showEdges;
     private bool _showVelocity;
