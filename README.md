@@ -12,13 +12,19 @@ from the built-in die presets, from a **STEP assembly of three bodies** (bottom 
 
 ## Download
 
-Every [release](https://github.com/aemarconnet/ImpressionFEA/releases) has two Windows x64 builds. Both are
-self-contained (no .NET install), include Intel MKL, STEP import, the samples and demos:
+Every [release](https://github.com/aemarconnet/ImpressionFEA/releases) has two Windows x64 builds, each as an
+**installer** (`…-setup.exe`: Program Files, Start Menu entry, uninstaller in Apps & Features, optional SOLIDWORKS
+add-in) and as a portable **zip** (unzip and run). Both are self-contained (no .NET install), include Intel MKL, STEP
+import, the samples and demos:
 
 | Build | Contents | Use it when |
 |---|---|---|
-| `…-win-x64-full.zip` | + NVIDIA GPU solver (cuDSS, CUDA 12 runtime, cuBLAS) | you have an NVIDIA GPU (driver R525+) |
-| `…-win-x64-light.zip` | CPU only, much smaller | no NVIDIA GPU, or a smaller download; `Get-GpuSolver.ps1` adds the GPU libraries later |
+| `…-win-x64-full-setup.exe` / `.zip` | + NVIDIA GPU solver (cuDSS, CUDA 12 runtime, cuBLAS) | you have an NVIDIA GPU (driver R525+) |
+| `…-win-x64-light-setup.exe` / `.zip` | CPU only, much smaller | no NVIDIA GPU, or a smaller download; the installer's last page (or `Get-GpuSolver.ps1`) adds the GPU libraries later |
+
+The installer is not code-signed yet, so Windows SmartScreen may show "unknown publisher" (*More info ▸ Run anyway*).
+It needs administrator rights once (Program Files). Settings, logs and your own materials and demos live in your user
+folders (`%APPDATA%`, `%LOCALAPPDATA%`, `Documents\ImpressionFEA`), so uninstalling or upgrading keeps them.
 
 ## Assumptions
 
@@ -140,8 +146,9 @@ job is selected, the app watches the file: when you export again from CAD, a yel
   increment or material. Every run is added to the history and can optionally be saved to a folder with a
   summary. The original value is restored afterwards, and Abort stops the batch.
 * **Demos**: curated, self-describing examples in `samples/demos/*.json`. Each has a setup, step-by-step
-  instructions shown in the app, and a suggested multi-run. Instructors can add or edit demos without rebuilding
-  (Demos tab → Reload). The eight shipped demos cover an upset benchmark, the temperature window, ram speed / strain
+  instructions shown in the app, and a suggested multi-run. Instructors can add their own or edited demos without
+  rebuilding in `Documents\ImpressionFEA\demos` (a file there replaces the built-in demo of the same name; Demos tab →
+  Reload). The eight shipped demos cover an upset benchmark, the temperature window, ram speed / strain
   rate sensitivity, 3D die fill of a 1"-8 hex bolt head, a material comparison including plasticine, the CAD re-import
   loop, die-only import with a user-defined workpiece, and the flash-thickness trade-off (fill against load) on the
   hex bolt head. Demo values are written in mm, °C and mm/s.
@@ -178,6 +185,22 @@ job is selected, the app watches the file: when you export again from CAD, a yel
   comparison), plus `telemetry.csv`, the setup, the solver log, STL / PLY and optionally the video. A **comparison
   report** of several runs adds a comparison page (one column per run, overlaid curves, sweep chart, final shapes)
   before each run's report. Reports print compactly; every figure is also saved as a high-resolution PNG.
+
+### Mesh size (automatic or override)
+
+The element size **h** is automatic by default (grey). In 3D it is chosen so that the initial mesh of the modelled
+workpiece has about **8,000 nodes** (Advanced ▸ *Mesh quality*: Fast 4,000 / Balanced 8,000 / Accurate 20,000, or
+any *Target nodes*; kept between sessions), within the node budget and
+with at least four elements across the thinnest part of the workpiece. It follows every change of the workpiece, so
+a resized or moved workpiece stays meshed and visible. Typing a value makes it an **override** (bold), which stays
+until you clear the box (Enter on an empty box returns to automatic). The stroke increment **Δs** works the same way
+(automatic 0.2·h). Hover over any input for its allowed range; the element-size tooltip also gives the valid range of
+h for the current workpiece. 2D uses the preset's recommended h.
+
+Input errors (the run cannot start; the workpiece is not drawn) and warnings appear in a box at the top left of the
+view, which says why; click its title to fold it. While a run is solving, the execution bar shows an **ETA**
+(remaining time, weighted towards the recent increments because they slow down near die closure); its tooltip gives
+the finish time and, in a queue, the time for the remaining items.
 
 ### Mesh terminology
 
@@ -220,7 +243,8 @@ job is selected, the app watches the file: when you export again from CAD, a yel
   **averaged-nodal-pressure** (Bonet–Burton ANP) penalty for incompressibility, which removes the volumetric locking
   of linear tets.
 * **Dies** are height fields z = h(x, y) for most presets, exact closed solids of flat and cylindrical faces for the
-  **hex bolt head** preset (full model; its flash-land thickness is an input and a multi-run parameter), or imported
+  **hex bolt head** preset (quarter model, 1 mm edge radius at the flash land; its flash-land thickness is an input and
+  a multi-run parameter), or imported
   triangulated CAD solids (inside test by ray
   parity, closest-point contact on a bucket grid). **Symmetry planes** give half or quarter models; nodal frames from Gram–Schmidt combine
   symmetry and die constraints. Friction is applied as a vector on the tangential axes.
@@ -279,7 +303,7 @@ use requires written permission. Third-party libraries keep their own licenses (
 * `NativeFemEngine.RunAsync` never throws for solver failures. Invalid input, Newton divergence, non-SPD
   stiffness, mesh distortion and operator abort are all returned as a `SimulationResult` with a status and
   message, and partial results stay available for scrubbing.
-* Unhandled UI exceptions are written to `impressionfea-crash.log` next to the executable.
+* Unhandled UI exceptions are written to `%LOCALAPPDATA%\ImpressionFEA\impressionfea-crash.log`.
 
 ## Extending with an external solver
 
@@ -317,13 +341,15 @@ later jobs are forwarded to it).
 | **All Configurations** | Exports every configuration and solves each one as a run (using the active configuration's setup as the template), for comparison in the Runs list. Results go to `results\`. |
 | **Job Folder** | Opens `Documents\ImpressionFEA\SolidWorks\<model>` with the STEP files, setups and results. |
 
-Install (release packages include it in `SolidWorks\`):
+Install: tick **Register the SOLIDWORKS add-in** in the installer (ticked automatically when SOLIDWORKS is found).
+The installer writes the add-in's registry keys itself, machine-wide, and removes them on uninstall; close SOLIDWORKS
+first. With the portable zip, register from the unpacked folder instead:
 
 ```
 powershell -ExecutionPolicy Bypass -File SolidWorks\Register-ImpressionFEA-SolidWorks.ps1
 ```
 
-The COM class is registered per user; SOLIDWORKS only lists add-ins under `HKLM\SOFTWARE\SolidWorks\AddIns`, so the
+With the script the COM class is registered per user; SOLIDWORKS only lists add-ins under `HKLM\SOFTWARE\SolidWorks\AddIns`, so the
 script asks once for administrator permission to write that key. Restart SOLIDWORKS; Tools > Add-Ins toggles the
 add-in. `Unregister-ImpressionFEA-SolidWorks.ps1` removes everything. Load problems are logged to
 `%LOCALAPPDATA%\ImpressionFEA\SolidWorks\addin.log`.

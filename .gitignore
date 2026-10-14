@@ -22,3 +22,10 @@ DEMO_IMPORT/
 
 # Release packages (tools/package-release.ps1)
 artifacts/
+
+# Private: AI assistant files, chat history, roadmap and internal reference material (never published)
+.claude/
+CLAUDE.md
+AGENTS.md
+FUTURE_WORK.md
+reference/

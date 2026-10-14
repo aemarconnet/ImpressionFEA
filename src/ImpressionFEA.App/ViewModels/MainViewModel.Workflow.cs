@@ -76,6 +76,7 @@ public sealed partial class MainViewModel
         RefineThinFlash = false;
         RemeshQualityThreshold = 0.12;
         MaxNodeCount = SimulationConfig3D.DefaultMaxNodes;
+        TargetNodes = SimulationConfig3D.DefaultTargetNodes;
         MaxIterations = 70;
         Tolerance = 1e-4;
     });
@@ -270,6 +271,8 @@ public sealed partial class MainViewModel
             FlashThickness = src is null && _analysis3D ? _selectedDie3D.FlashThickness : null,
             ElementSize = _elementSize,
             StrokeIncrement = _strokeIncrement,
+            ElementSizeAuto = _elementSizeAuto ? true : null,
+            StrokeIncrementAuto = _strokeIncrementAuto ? true : null,
             RamSpeed = _ramSpeed,
             PressCapacity = _pressCapacity,
             LinearBackend = SelectedBackend.Backend.ToString(),
@@ -331,8 +334,12 @@ public sealed partial class MainViewModel
             if (s.BilletRadius is { } r) BilletRadius = r;
             if (s.BilletHeight is { } hgt) BilletHeight = hgt;
             if (s.BilletLength is { } len) BilletLength = len;
-            if (s.ElementSize > 0) ElementSize = s.ElementSize;
-            if (s.StrokeIncrement > 0) StrokeIncrement = s.StrokeIncrement;
+            _elementSizeAuto = s.ElementSizeAuto == true || !(s.ElementSize > 0);
+            _strokeIncrementAuto = s.StrokeIncrementAuto == true || !(s.StrokeIncrement > 0);
+            OnPropertyChanged(nameof(ElementSizeIsAuto));
+            OnPropertyChanged(nameof(StrokeIncrementIsAuto));
+            if (!_elementSizeAuto) ElementSize = s.ElementSize;
+            if (!_strokeIncrementAuto) StrokeIncrement = s.StrokeIncrement;
             if (s.RamSpeed > 0) RamSpeed = s.RamSpeed;
             if (s.PressCapacity > 0) PressCapacity = s.PressCapacity;
             if (Enum.TryParse<LinearBackend>(s.LinearBackend, true, out var lb)) SelectedBackend = Backends.FirstOrDefault(b => b.Backend == lb) ?? Backends[0];
@@ -844,7 +851,7 @@ public sealed partial class MainViewModel
     /// <summary>The demo whose setup is loaded (its guide is shown on the Basic tab).</summary>
     public DemoDefinition? ActiveDemo { get => _activeDemo; private set => Set(ref _activeDemo, value); }
 
-    public string DemoFolder => DemoCatalog.Folder;
+    public string DemoFolder => DemoCatalog.UserFolder;
 
     private void LoadDemos()
     {

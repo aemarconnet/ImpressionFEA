@@ -191,14 +191,23 @@ public sealed class ForgingAssembly
         };
     }
 
-    /// <summary>Element size giving about six elements across the thinnest workpiece dimension, within the default node budget.</summary>
+    /// <summary>
+    /// Element size giving about <see cref="SimulationConfig3D.DefaultTargetNodes"/> nodes in the workpiece, kept within
+    /// the default node budget and at least 4 elements across its thinnest dimension.
+    /// </summary>
     public static double RecommendedElementSize(TriMeshSolid work)
     {
         ArgumentNullException.ThrowIfNull(work);
         double thin = Math.Min(work.Max.X - work.Min.X, Math.Min(work.Max.Y - work.Min.Y, work.Max.Z - work.Min.Z));
-        double hNodes = Math.Cbrt(2.2 * Math.Abs(work.Volume) / (0.75 * SimulationConfig3D.MaxNodes));
-        double h = Math.Round(Math.Max(Math.Min(thin / 6, 4), hNodes) * 4) / 4;
-        return Math.Max(h, 0.25);
+        double v = Math.Abs(work.Volume), k = SimulationConfig3D.NodesPerCubicElement;
+        double h = Math.Cbrt(k * v / SimulationConfig3D.DefaultTargetNodes);
+        double lo = Math.Cbrt(k * v / SimulationConfig3D.MaxNodes), hi = thin / 4;
+        h = Math.Min(Math.Max(h, lo), hi);
+        double step = h < 1 ? 0.01 : h < 10 ? 0.05 : 0.25;
+        double r = Math.Round(h / step) * step;
+        if (r > hi) r = Math.Floor(hi / step) * step;
+        else if (r < lo) r = Math.Ceiling(lo / step) * step;
+        return Math.Max(Math.Round(r, 4), 0.05);
     }
 
     private static string AxisName(Vec3 a) => (a.X != 0 ? (a.X > 0 ? "+X" : "−X") : a.Y != 0 ? (a.Y > 0 ? "+Y" : "−Y") : a.Z > 0 ? "+Z" : "−Z");

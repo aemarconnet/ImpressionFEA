@@ -234,8 +234,7 @@ public partial class MainWindow : Window
 
     private void OpenDemoFolder_Click(object sender, RoutedEventArgs e)
     {
-        string folder = Vm.DemoFolder;
-        if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder);
+        string folder = Infrastructure.DemoCatalog.EnsureUserFolder();
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
@@ -483,6 +482,7 @@ public partial class MainWindow : Window
 
         var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
         var root = (FrameworkElement)Content;
+        root.UpdateLayout();
         var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(
             (int)(root.ActualWidth * dpi.DpiScaleX), (int)(root.ActualHeight * dpi.DpiScaleY),
             96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, System.Windows.Media.PixelFormats.Pbgra32);

@@ -246,8 +246,10 @@ public sealed class AddIn : ISwAddin
     /// <summary>ImpressionFEA.App.exe: from the registration (registry), else next to / above this add-in.</summary>
     private static string FindApp()
     {
-        using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Marconnet Technologies\ImpressionFEA"))
+        // Per user (Register-ImpressionFEA-SolidWorks.ps1), then machine-wide (the installer).
+        foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
         {
+            using var key = hive.OpenSubKey(@"Software\Marconnet Technologies\ImpressionFEA");
             if (key?.GetValue("AppPath") is string p && File.Exists(p)) return p;
         }
 
@@ -257,7 +259,7 @@ public sealed class AddIn : ISwAddin
             if (File.Exists(candidate)) return Path.GetFullPath(candidate);
         }
 
-        throw new FileNotFoundException("ImpressionFEA.App.exe was not found. Run Register-ImpressionFEA-SolidWorks.ps1 from the ImpressionFEA folder.");
+        throw new FileNotFoundException("ImpressionFEA.App.exe was not found. Reinstall ImpressionFEA with the SOLIDWORKS add-in, or run Register-ImpressionFEA-SolidWorks.ps1 from the ImpressionFEA folder.");
     }
 
     private static void LaunchApp(string arguments)

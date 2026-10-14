@@ -57,10 +57,103 @@ public sealed record SimulationConfig3D
     /// <summary>Default node budget (kept for callers that size meshes before a config exists).</summary>
     public const int MaxNodes = DefaultMaxNodes;
 
+    /// <summary>Default target node count of the automatic element size.</summary>
+    public const int DefaultTargetNodes = 8000;
+
+    /// <summary>Nodes per h³ of workpiece volume (BCC lattice of the isosurface stuffing).</summary>
+    public const double NodesPerCubicElement = 2.2;
+
+    /// <summary>Workpiece volume of the modelled portion (half / quarter for symmetric presets), mm³.</summary>
+    public double ModelledVolume => Math.Abs(Die.BilletVolumeFor(BilletRadius, BilletDimension)) / Die.SymmetryFactor;
+
     /// <summary>Approximate node count of the modelled portion (BCC lattice: ≈ 2 nodes per h³).</summary>
     public int EstimatedNodes => ElementSize > 0
-        ? (int)(2.2 * Die.BilletVolumeFor(BilletRadius, BilletDimension) / Die.SymmetryFactor / Math.Pow(ElementSize, 3))
+        ? (int)Math.Min(int.MaxValue, NodesPerCubicElement * ModelledVolume / Math.Pow(ElementSize, 3))
         : int.MaxValue;
+
+    /// <summary>Element size giving about <paramref name="nodes"/> nodes in the modelled portion, mm.</summary>
+    public double ElementSizeForNodes(int nodes) => nodes > 0 ? Math.Cbrt(NodesPerCubicElement * ModelledVolume / nodes) : double.PositiveInfinity;
+
+    /// <summary>Largest valid h: 4 elements across the smallest extent of an imported workpiece, R / 2.5 for a preset billet.</summary>
+    public double CoarsestElementSize
+    {
+        get
+        {
+            if (!Die.IsImported) return BilletRadius / 2.5;
+            var b = Die.ImportedBillet!;
+            return Math.Min(b.Max.X - b.Min.X, Math.Min(b.Max.Y - b.Min.Y, b.Max.Z - b.Min.Z)) / 4;
+        }
+    }
+
+    /// <summary>Smallest valid h: the node budget.</summary>
+    public double FinestElementSize => ElementSizeForNodes(MaxNodeCount);
+
+    /// <summary>
+    /// Automatic element size: about <paramref name="targetNodes"/> nodes, kept between <see cref="FinestElementSize"/>
+    /// and <see cref="CoarsestElementSize"/> (the coarse limit wins when the two cross) and rounded to a tidy value.
+    /// </summary>
+    public double AutoElementSize(int targetNodes = DefaultTargetNodes)
+    {
+        double lo = FinestElementSize, hi = CoarsestElementSize;
+        double h = ElementSizeForNodes(targetNodes);
+        if (!double.IsFinite(h) || !(hi > 0)) return double.IsFinite(hi) && hi > 0 ? hi : 1;
+        return Tidy(Math.Min(Math.Max(h, lo), hi), lo, hi);
+    }
+
+    /// <summary>
+    /// Node count of the initial mesh at element size <paramref name="h"/> (runs the isosurface stuffing on the seated
+    /// workpiece; no solver set-up), or null when the workpiece cannot be placed.
+    /// </summary>
+    public int? InitialNodeCount(double h)
+    {
+        if (!(h > 0)) return null;
+        try
+        {
+            var (seat, _) = Die.Place(BilletRadius, BilletDimension);
+            var (min, max) = Die.BilletBounds(BilletRadius, BilletDimension, seat);
+            return IsosurfaceStuffing.Stuff(Die.BilletInside(BilletRadius, BilletDimension, seat), min, max, h, Die.SymmetricX, Die.SymmetricY).Points.Length;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="AutoElementSize"/> corrected with the actual initial mesh: the volume estimate leaves out the extra
+    /// nodes of the cut surface (15–40 %), so h is enlarged by up to two secant steps on the real node count. Stays
+    /// within the same limits; falls back to the estimate when the workpiece cannot be meshed.
+    /// </summary>
+    public double CalibratedAutoElementSize(int targetNodes = DefaultTargetNodes)
+    {
+        double h = AutoElementSize(targetNodes);
+        double lo = FinestElementSize, hi = CoarsestElementSize;
+        if (!(h < hi) || targetNodes <= 0) return h;
+        for (int pass = 0; pass < 2; pass++)
+        {
+            if (InitialNodeCount(h) is not { } n || n <= 0) return h;
+            double ratio = (double)n / targetNodes;
+            if (Math.Abs(ratio - 1) < 0.05) break;
+            // N ≈ a/h³ + b/h²: an exponent of 2.8 between the two converges in one or two steps.
+            double next = Tidy(Math.Min(Math.Max(h * Math.Pow(ratio, 1 / 2.8), lo), hi), lo, hi);
+            if (next == h) break;
+            h = next;
+        }
+
+        return h;
+    }
+
+    private static double Tidy(double h, double lo, double hi)
+    {
+        double step = h < 1 ? 0.01 : h < 10 ? 0.05 : 0.25;
+        double r = Math.Round(h / step) * step;
+        if (r > hi) r = Math.Floor(hi / step) * step;
+        else if (r < lo) r = Math.Ceiling(lo / step) * step;
+        return Math.Round(r > 0 ? r : h, 4);
+    }
+
+    /// <summary>Automatic stroke increment for element size <paramref name="h"/>: 0.2·h (half the 0.4·h limit).</summary>
+    public static double AutoStrokeIncrement(double h) => Math.Max(0.01, Math.Round(0.2 * h, 2));
 
     public double TimeIncrement => StrokeIncrement / RamSpeed;
 
@@ -77,9 +170,11 @@ public sealed record SimulationConfig3D
         if (!double.IsFinite(Temperature)) e.Add("Temperature must be a finite number.");
         if (e.Count > 0) return e;
 
-        if (ElementSize > BilletRadius / 2.5) e.Add("Element size h is too coarse for the billet radius (need R ≥ 2.5·h).");
+        if (ElementSize > CoarsestElementSize) e.Add("Element size h is too coarse for the billet radius (need R ≥ 2.5·h).");
         if (EstimatedNodes > MaxNodeCount)
             e.Add($"3D mesh too fine: ≈{EstimatedNodes:N0} nodes (limit {MaxNodeCount:N0}). Increase h or raise the node budget (Advanced).");
+        if (FinestElementSize > CoarsestElementSize)
+            e.Add($"No element size fits this workpiece: the node budget needs h ≥ {FinestElementSize:F2} mm, its shape needs h ≤ {CoarsestElementSize:F2} mm. Raise the node budget (Advanced) or use a smaller workpiece.");
         if (StrokeIncrement > 0.4 * ElementSize)
             e.Add("Stroke increment must not exceed 0.4·h (contact and mesh-distortion control).");
         AdvancedChecks(e);
@@ -103,17 +198,18 @@ public sealed record SimulationConfig3D
 
     private List<string> ValidateImported(List<string> e)
     {
-        var b = Die.ImportedBillet!;
-        double thin = Math.Min(b.Max.X - b.Min.X, Math.Min(b.Max.Y - b.Min.Y, b.Max.Z - b.Min.Z));
+        double thin = 4 * CoarsestElementSize;
         if (!(FrictionFactor >= 0 && FrictionFactor <= 1)) e.Add("Shear friction factor m must lie in [0, 1].");
         if (!(RamSpeed > 0)) e.Add("Ram speed must be > 0 mm/s.");
         if (!(ElementSize > 0)) e.Add("Element size h must be > 0 mm.");
         if (!(StrokeIncrement > 0)) e.Add("Stroke increment must be > 0 mm.");
         if (!double.IsFinite(Temperature)) e.Add("Temperature must be a finite number.");
         if (e.Count > 0) return e;
-        if (ElementSize > thin / 4) e.Add($"Element size h is too coarse for the workpiece (smallest extent {thin:F1} mm, need ≥ 4·h).");
+        if (ElementSize > CoarsestElementSize) e.Add($"Element size h is too coarse for the workpiece (smallest extent {thin:F1} mm, need ≥ 4·h).");
         if (EstimatedNodes > MaxNodeCount)
             e.Add($"3D mesh too fine: ≈{EstimatedNodes:N0} nodes (limit {MaxNodeCount:N0}). Increase h or raise the node budget (Advanced).");
+        if (FinestElementSize > CoarsestElementSize)
+            e.Add($"No element size fits this workpiece: the node budget needs h ≥ {FinestElementSize:F2} mm, its shape needs h ≤ {CoarsestElementSize:F2} mm. Raise the node budget (Advanced) or use a smaller workpiece.");
         if (StrokeIncrement > 0.4 * ElementSize)
             e.Add("Stroke increment must not exceed 0.4·h (contact and mesh-distortion control).");
         AdvancedChecks(e);

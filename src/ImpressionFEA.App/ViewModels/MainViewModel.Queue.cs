@@ -286,6 +286,9 @@ public sealed partial class MainViewModel
         _cts?.Cancel();
     }, () => IsQueueRunning && IsRunning);
 
+    /// <summary>Solve times of the items completed in the running queue (for the queue ETA).</summary>
+    private readonly List<double> _queueRunSeconds = [];
+
     /// <summary>Solves every pending item in order. Abort (or Esc) stops the queue; failed items are marked and skipped.</summary>
     public async Task RunQueueAsync()
     {
@@ -298,6 +301,7 @@ public sealed partial class MainViewModel
         IsQueueRunning = true;
         var finished = new List<QueueItem>();
         int total = PendingCount;
+        _queueRunSeconds.Clear();
         try
         {
             while (!_sweepAbort && !_queueStopAfter && Queue.FirstOrDefault(q => q.State == QueueItemState.Pending) is { } item)
@@ -334,6 +338,7 @@ public sealed partial class MainViewModel
                         _ => QueueItemState.Failed,
                     };
                     item.Message = rec.Status == SimulationStatus.Completed ? null : StatusText;
+                    if (rec.Status == SimulationStatus.Completed) _queueRunSeconds.Add(rec.Elapsed.TotalSeconds);
                 }
                 else
                 {

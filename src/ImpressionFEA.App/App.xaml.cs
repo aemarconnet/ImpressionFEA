@@ -6,7 +6,9 @@ namespace ImpressionFEA.App;
 
 public partial class App : Application
 {
-    public static string CrashLogPath { get; } = Path.Combine(AppContext.BaseDirectory, "impressionfea-crash.log");
+    /// <summary>%LOCALAPPDATA%\ImpressionFEA\impressionfea-crash.log (the install folder may be read-only).</summary>
+    public static string CrashLogPath { get; } =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ImpressionFEA", "impressionfea-crash.log");
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -18,6 +20,7 @@ public partial class App : Application
             args.SetObserved();
         };
         base.OnStartup(e);
+        Infrastructure.SolidWorksAddIn.EnsureUserStartup();
 
         // Jobs from CAD (SolidWorks add-in): hand them to the running window if there is one.
         var args = e.Args;
@@ -65,7 +68,8 @@ public partial class App : Application
     {
         try
         {
-            File.AppendAllText(CrashLogPath, $"[{DateTime.Now:O}] {ex}\n\n");
+            Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);
+            File.AppendAllText(CrashLogPath,$"[{DateTime.Now:O}] {ex}\n\n");
         }
         catch (IOException)
         {

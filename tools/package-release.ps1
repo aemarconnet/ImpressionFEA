@@ -3,9 +3,12 @@
 #   artifacts\ImpressionFEA-<version>-win-x64-light.zip  CPU only (Intel MKL), much smaller; GPU libraries can be added
 #                                                         later with Get-GpuSolver.ps1
 # Both include the Open CASCADE runtime (STEP import), samples, demos and every licence.
-#   powershell -ExecutionPolicy Bypass -File tools/package-release.ps1 [-Version 0.6.0] [-Flavor full|light|both]
+# Each package also gets a Windows installer, artifacts\ImpressionFEA-<version>-win-x64-<flavor>-setup.exe (Program
+# Files, Start Menu, uninstaller, optional SOLIDWORKS add-in registration), when Inno Setup 6 is installed
+# (winget install JRSoftware.InnoSetup); -NoInstaller skips it.
+#   powershell -ExecutionPolicy Bypass -File tools/package-release.ps1 [-Version 0.6.0] [-Flavor full|light|both] [-NoInstaller]
 # Requires native\cad\bin (native/cad/build-cad.ps1) and, for the full package, native\cuda (native/fetch-cuda.ps1).
-param([string]$Version, [ValidateSet('both', 'full', 'light')][string]$Flavor = 'both')
+param([string]$Version, [ValidateSet('both', 'full', 'light')][string]$Flavor = 'both', [switch]$NoInstaller)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -95,6 +98,30 @@ Licences:   licenses\ (Open CASCADE LGPL-2.1, Intel, NVIDIA, FreeType, FreeImage
     $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
     Set-Content -Encoding ASCII "$zip.sha256" "$hash  $name.zip"
     '{0}: {1:N0} MB (unpacked {2:N0} MB), SHA-256 {3}' -f $zip, ((Get-Item $zip).Length / 1MB), ((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), $hash
+    if ($script:iscc) { Build-Installer $out $(if ($gpu) { 'full' } else { 'light' }) }
+}
+
+# Installer from the publish folder (tools/installer/ImpressionFEA.iss).
+function Build-Installer([string]$source, [string]$flavor) {
+    $isccArgs = @("/DAppVersion=$Version", "/DFlavor=$flavor", "/DSourceDir=$source", "/DOutputDir=$artifacts", '/Q')
+    $dll = Join-Path $source 'SolidWorks\ImpressionFEA.SolidWorks.dll'
+    if (Test-Path $dll) {
+        $asm = [Reflection.AssemblyName]::GetAssemblyName($dll)
+        $isccArgs += "/DAddInAssembly=$($asm.FullName)", "/DAddInVersion=$($asm.Version)"
+    }
+    & $script:iscc @isccArgs (Join-Path $root 'tools\installer\ImpressionFEA.iss')
+    if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)." }
+    $setup = Join-Path $artifacts "ImpressionFEA-$Version-win-x64-$flavor-setup.exe"
+    $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+    Set-Content -Encoding ASCII "$setup.sha256" "$hash  $(Split-Path $setup -Leaf)"
+    '{0}: {1:N0} MB, SHA-256 {2}' -f $setup, ((Get-Item $setup).Length / 1MB), $hash
+}
+
+$script:iscc = $null
+if (-not $NoInstaller) {
+    $script:iscc = @((Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'), (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'), (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')) |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $script:iscc) { 'Inno Setup 6 not found (winget install JRSoftware.InnoSetup): building the zip packages only.' }
 }
 
 $script:addinDir = $null

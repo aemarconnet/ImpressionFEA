@@ -3,12 +3,12 @@
   "level": "Advanced · 3D · built-in die set · thin-flash refinement · ~7 min per run",
   "summary": "The 1\"-8 hex bolt head of demo 4, forged with three flash-land thicknesses: the classic closed-die trade-off between die fill and press load.",
   "instructions": [
-    "1. The die set is the hex bolt head (full model, flat and cylindrical die faces). The flash land is 3/16\" wide; its thickness is the input 'Flash land thickness' under Geometry.",
-    "2. Run its multi-run: the flash thickness is swept from 1/32\" to 1/8\" with the same billet, material and press, so only the flash changes. Thin-flash refinement (Advanced) is on so the solver resolves the flash.",
+    "1. The die set is the hex bolt head (quarter model, flat and cylindrical die faces, 1 mm edge radius at the flash land). The flash land is 3/16\" wide; its thickness is the input 'Flash land thickness' under Geometry.",
+    "2. Run its multi-run: the flash thickness is swept from 1/32\" to 1/8\" with the same billet, material and press, so only the flash changes. The element size is automatic (Balanced, about 8,000 nodes in the quarter model).",
     "3. Compare peak load and final fill in RUNS, or Export ▸ Comparison report for the table and a peak-load / fill chart against flash thickness.",
     "4. A thin flash chokes the outflow: the pressure in the cavity rises, the hex corners fill, and the load climbs steeply in the last millimetres.",
     "5. A thick flash lets metal escape: lower load, but the corners may not fill. Die designers pick the thinnest flash the press can push.",
-    "6. Read the Volume change column too: the thinnest flash is only a few elements thick, so some volume is lost and the load difference is understated. A finer element size h sharpens the trend at the cost of run time."
+    "6. Read the Volume change column too: it should stay within about 2 %. The 0.8 mm flash is thinner than one element, so its load at closure is not reliable at this mesh size (it can come out lower than the 1.6 mm one); use the Accurate mesh quality or a smaller h to study very thin flash."
   ],
   "setup": {
     "analysis": "3D",
@@ -17,9 +17,6 @@
     "material": "AISI 4140",
     "temperature": 1150,
     "friction": 0.3,
-    "elementSize": 2.5,
-    "refineThinFlash": true,
-    "strokeIncrement": 0.5,
     "ramSpeed": 50,
     "pressCapacity": 300
   },

@@ -3,6 +3,48 @@
 The release number lives in `Directory.Build.props` (`<Version>`) and is shown in the app title bar together with
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
+## 0.9.0
+- **Windows installer** (`…-win-x64-full-setup.exe` / `…-light-setup.exe`, next to the zip packages): installs to
+  Program Files with a Start Menu entry (desktop shortcut optional) and an uninstaller. The optional **SOLIDWORKS
+  add-in** (ticked when SOLIDWORKS is found) is registered by the installer itself, machine-wide, without PowerShell;
+  uninstalling removes it. The light installer can download the NVIDIA GPU solver on its last page.
+- **Automatic element size**: in 3D, h is chosen for about **8,000 nodes** in the initial mesh (Advanced ▸ *Target
+  nodes*, remembered between sessions), calibrated on the actual mesh, within the node budget and the four-elements-
+  across limit. It follows every change of the workpiece, so a resized die-only workpiece no longer disappears for
+  having too few or too many elements. Automatic values are grey; typing a value makes it a bold **override** that
+  stays; clearing the box returns to automatic. The stroke increment follows h the same way (0.2·h). Setups record
+  whether h and Δs were automatic; older setups and the demos keep their stored values as overrides.
+- **Input tooltips** show every field's allowed range in the display units; the element-size tooltip also gives the
+  valid h range for the current workpiece and the h for the target node count. The mesh read-out shows the actual
+  node and tetrahedron count of the preview mesh.
+- **Errors and warnings** moved from the bottom of the configuration panel to a box at the top left of the view:
+  errors (red: the run cannot start and the workpiece is not drawn, with the reason) and warnings (amber), click to
+  fold. A new message lists both limits when no element size fits the workpiece.
+- **ETA** in the execution bar while solving, weighted towards the recent increments (they slow down near die
+  closure); the tooltip gives the finish time and, while a queue runs, the time for the remaining items.
+- **3D contact accuracy**: contact tolerances now scale with the local element size instead of the global h, so
+  refined elements no longer sit inside the dies. On the hex bolt head the deepest node penetration at closure fell
+  from 0.45 mm (41 nodes) to under 0.2 mm, and runs got slightly faster. Only the last recovery passes of an increment
+  that would otherwise fail fall back to the old, looser tolerances.
+- **3D solver about 2.4× faster**: the element work of each Newton iteration runs on all CPU cores (results summed in a
+  fixed order, so they do not depend on the core count), and the preconditioned iterative solve backs off after
+  repeated failures instead of costing nearly a factorisation each time. The Balanced hex bolt head went from about
+  6.4 to 2.7 minutes. Every 3D log ends with a time profile (assembly, factorisation, iterative solve, contact,
+  remeshing).
+- **Stroke increment follows the flash**: each increment compresses the thinnest layer held between the dies by at
+  most 10 %, so the step shrinks ahead of the flash instead of failing and being cut back.
+- **Hex bolt head preset is a quarter model** (it is symmetric about x and y) with a 1 mm radius on the die edge into
+  the flash land. At the same run time the mesh is much finer: the workpiece volume is now conserved within about 1 %
+  (the full model lost 6–7 % into the thin flash, which understated the load by about a third to a half). Demos 4 and
+  8 use the automatic element size.
+- **Mesh quality** (Advanced ▸ Mesh quality 3D): Fast (about 4,000 nodes), Balanced (8,000, default) or Accurate
+  (20,000, node budget 40,000) for your own parts when run time matters less; remembered between sessions. A 3D run
+  that changes the workpiece volume by more than 3 % ends with a coarse-mesh warning.
+- **Handbook load estimate** (Core): the simplified slab method of Altan, Ngaile & Shen (Eqs 14.8–14.11, with the
+  sliding and disk-shearing cavity modes of Table 15.1), with benchmark tests against the book's worked examples.
+- Crash log moved to `%LOCALAPPDATA%\ImpressionFEA`; your own and edited demos go in `Documents\ImpressionFEA\demos`
+  (a file there replaces the built-in demo of the same name) — the install folder can be read-only.
+
 ## 0.8.2
 - **Simulation queue** (Telemetry ▸ Queue): add the current setup (**+ Queue** or **+ Add current setup**), change any
   input and add again, then **▶ Run queue**. Items can be loaded back into the configuration, edited and updated,

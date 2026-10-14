@@ -8,7 +8,7 @@ public class HexBoltDieTests
     public void DiesAreExactFlatAndCylindricalSolids()
     {
         var d = DiePresets3D.HexBoltHead();
-        Assert.Equal(Symmetry3D.None, d.Symmetry);
+        Assert.Equal(Symmetry3D.Quarter, d.Symmetry);
         Assert.Equal(1.6, d.FlashThickness);
 
         // Top die (closed): head top inside the hex, land over the 3/16" ring, gutter beyond.

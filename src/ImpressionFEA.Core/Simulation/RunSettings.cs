@@ -48,6 +48,12 @@ public sealed record RunSettings
 
     public double StrokeIncrement { get; init; }
 
+    /// <summary>h was calculated automatically (recomputed on load); null or false = the stored value is an override.</summary>
+    public bool? ElementSizeAuto { get; init; }
+
+    /// <summary>Δs was calculated automatically from h (recomputed on load); null or false = the stored value is an override.</summary>
+    public bool? StrokeIncrementAuto { get; init; }
+
     public double RamSpeed { get; init; } = 50;
 
     public double PressCapacity { get; init; } = 1000;

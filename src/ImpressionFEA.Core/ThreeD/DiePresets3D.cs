@@ -54,7 +54,7 @@ public static class DiePresets3D
     }
 
     /// <summary>
-    /// 1"-8 hex bolt head upset from 1" bar, full model (no symmetry). Top die: hex pocket 1-1/2" across flats (flats
+    /// 1"-8 hex bolt head upset from 1" bar, quarter model (the hexagon, bore and bar are symmetric about x and y). Top die: hex pocket 1-1/2" across flats (flats
     /// parallel to x) × 39/64" deep with drafted walls, a flat flash land 3/16" wide around it, a 45° gutter step and
     /// a flat outer face. Bottom die: flat face (the parting plane, z = 0) with a Ø1" shank bore 1-1/2" deep and a 45° entry
     /// chamfer. Both dies are exact closed solids made of flat faces and long cylindrical facets (no height-field
@@ -95,9 +95,17 @@ public static class DiePresets3D
             return new Vec3(r * Math.Cos(a), r * Math.Sin(a), z);
         })];
 
+        // Fillet on the die edge where the cavity wall meets the flash land (the metal turns into the flash here): a sharp
+        // edge lets element faces cut through it and causes most contact cutbacks. Radius 1 mm, at most a third of the land.
+        double rf = Math.Min(1.0, flashWidth / 3);
+        var edge = Enumerable.Range(0, 5).Select(k =>
+        {
+            double a = Math.PI + k * Math.PI / 8; // 180° (on the wall) … 270° (on the land), centre (s + rf, tf + rf)
+            return HexRing(s + rf + rf * Math.Cos(a), tf + rf + rf * Math.Sin(a));
+        });
         var top = Stack(
             new Vec3(0, 0, headHeight),
-            [HexRing(sTop, headHeight), HexRing(s, tf), HexRing(s + flashWidth, tf), HexRing(s + flashWidth + gutterDepth, tf + gutterDepth),
+            [HexRing(sTop, headHeight), .. edge, HexRing(s + flashWidth, tf), HexRing(s + flashWidth + gutterDepth, tf + gutterDepth),
              HexRing(sOut, tf + gutterDepth), HexRing(sOut, tf + gutterDepth + back)],
             new Vec3(0, 0, tf + gutterDepth + back));
         var bottom = Stack(
@@ -111,10 +119,10 @@ public static class DiePresets3D
         {
             Name = "Hex bolt head 1\" (3D)",
             Description = FormattableString.Invariant(
-                $"1\"-8 hex bolt: head {acrossFlats / 25.4:0.###}\" across flats × {headHeight / 25.4:0.###}\" ({draftDeg:0.#}° draft) in the top die, Ø{shankDiameter / 25.4:0.###}\" × {shankLength / 25.4:0.##}\" shank in the bottom-die bore, flash land {flashWidth / 25.4:0.###}\" wide × {tf / 25.4:0.###}\" thick. Full model, flat and cylindrical die faces, upset from bar."),
+                $"1\"-8 hex bolt: head {acrossFlats / 25.4:0.###}\" across flats × {headHeight / 25.4:0.###}\" ({draftDeg:0.#}° draft) in the top die, Ø{shankDiameter / 25.4:0.###}\" × {shankLength / 25.4:0.##}\" shank in the bottom-die bore, flash land {flashWidth / 25.4:0.###}\" wide × {tf / 25.4:0.###}\" thick. Quarter model, flat and cylindrical die faces, upset from bar."),
             Bottom = new TriMeshDie(DieSide.Bottom, bottom),
             TopClosed = new TriMeshDie(DieSide.Top, top),
-            Symmetry = Symmetry3D.None,
+            Symmetry = Symmetry3D.Quarter,
             Billet = BilletShape.VerticalCylinder,
             Outline = Hex,
             XMin = -ext,

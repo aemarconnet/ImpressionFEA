@@ -86,6 +86,9 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     private string _elapsedText = "00:00.0";
     private double _progress;
     private string _stepText = "—";
+    private string _etaText = "";
+    private string _etaTip = "Estimated time to completion";
+    private readonly EtaEstimator _eta = new();
     private int _scrubIndex;
     private FieldOption _selectedField;
     private bool _showMesh = true;
@@ -123,7 +126,18 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         _temperature = _selectedMaterial.DefaultTemperature;
         _selectedDie = DieSets[1];
         _selectedDie3D = DieSets3D[0];
+        ApplySavedMeshQuality();
         ApplyDieDefaults();
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(HasResults) or nameof(IsRunning)) OnPropertyChanged(nameof(ShowIssues));
+            if (e.PropertyName is nameof(TargetNodes) or nameof(MaxNodeCount) or nameof(RefineThinFlash) or nameof(RefinementLevels))
+            {
+                OnPropertyChanged(nameof(MeshQuality));
+                OnPropertyChanged(nameof(MeshQualityHint));
+                if (!_suspendDerived) AppSettings.Set("mesh.quality", MeshQuality.ToString());
+            }
+        };
 
         SolveCommand = new RelayCommand(() => _ = SolveAsync(), () => !IsRunning && !IsSweeping && !IsExporting);
         AbortCommand = new RelayCommand(() =>
@@ -321,6 +335,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     private void ApplyDieDefaults()
     {
         _suspendDerived = true;
+        ResetAutoMesh();
         if (_analysis3D)
         {
             var d = _selectedDie3D;
@@ -390,10 +405,6 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     public string PressText { get; private set; } = "";
 
     public string MaterialText { get; private set; } = "";
-
-    public bool HasInputWarning { get; private set; }
-
-    public string InputWarning { get; private set; } = "";
 
     private SimulationConfig BuildConfig() => new()
     {
@@ -467,6 +478,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     private void RefreshDerived()
     {
         if (_suspendDerived) return;
+        ApplyAutoMesh();
         List<string> errors;
         double rateSize;
         if (_analysis3D)
@@ -501,11 +513,13 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         double rate = rateSize > 0 ? _ramSpeed / rateSize : 0;
         var law = _selectedMaterial.At(_temperature);
         MaterialText = $"C(T) = {U.Sf(law.C)} · n {F($"{law.N:F2}")} · m {F($"{law.M:F2}")} · σ̄(0.2, {F($"{rate:F2}")}/s) = {U.Sf(law.Stress(0.2, rate))}";
+        var warnings = new List<string>();
         if (!_selectedMaterial.InRange(_temperature))
-            errors.Add($"Temperature outside calibrated window {U.Tf(_selectedMaterial.TMin)} – {U.Tf(_selectedMaterial.TMax)} (flow stress extrapolated).");
-        HasInputWarning = errors.Count > 0;
-        InputWarning = string.Join(Environment.NewLine, errors);
-        foreach (var n in new[] { nameof(VolumeText), nameof(MeshText), nameof(PressText), nameof(MaterialText), nameof(HasInputWarning), nameof(InputWarning), nameof(DieDescription) })
+            warnings.Add($"Temperature outside calibrated window {U.Tf(_selectedMaterial.TMin)} – {U.Tf(_selectedMaterial.TMax)} (flow stress extrapolated).");
+        if (!_elementSizeAuto && errors.Exists(e => e.Contains("Element size", StringComparison.Ordinal) || e.Contains("mesh too fine", StringComparison.Ordinal)))
+            errors.Add("Element size h is an override: clear its box (Mesh) to return to the automatic size.");
+        SetIssues(errors, warnings);
+        foreach (var n in new[] { nameof(VolumeText), nameof(MeshText), nameof(PressText), nameof(MaterialText), nameof(DieDescription) })
             OnPropertyChanged(n);
 
         if (!IsRunning && _snapshots.Count == 0) BuildPreview();
@@ -514,6 +528,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     /// <summary>Initial billet in the open dies, shown before a run.</summary>
     private void BuildPreview()
     {
+        string? error = null;
         try
         {
             if (_analysis3D)
@@ -521,6 +536,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
                 var cfg = BuildConfig3D();
                 _preview = cfg.Validate().Count == 0 ? new Forging3DSolver(cfg).Initial() : null;
                 Bounds3D = ComputeBounds3D(cfg);
+                if (_preview is { } p)
+                {
+                    MeshText = F($"{p.NodeCount:N0} nodes, {p.ElementCount:N0} tetrahedra (initial mesh, modelled portion)");
+                    OnPropertyChanged(nameof(MeshText));
+                }
             }
             else
             {
@@ -532,8 +552,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         catch (Exception ex) when (ex is SimulationException or InvalidOperationException)
         {
             _preview = null;
+            error = ex.Message;
         }
 
+        SetPreviewError(error);
+        RaiseIssues();
         OnPropertyChanged(nameof(DisplaySnapshot));
         OnPropertyChanged(nameof(ShowFieldColors));
     }
@@ -593,6 +616,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
     public double Progress { get => _progress; private set => Set(ref _progress, value); }
 
     public string StepText { get => _stepText; private set => Set(ref _stepText, value); }
+
+    /// <summary>Estimated time left in the running simulation (empty when not running or too early to tell).</summary>
+    public string EtaText { get => _etaText; private set => Set(ref _etaText, value); }
+
+    public string EtaTip { get => _etaTip; private set => Set(ref _etaTip, value); }
 
     // ------------------------------------------------------------------ results / scrubber
 
@@ -796,6 +824,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         StatusText = _analysis3D ? "Solving (3D)…" : "Solving…";
         _cts = new CancellationTokenSource();
         _clock.Restart();
+        _eta.Reset();
 
         SimulationResult result;
         try
@@ -807,6 +836,8 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         finally
         {
             _clock.Stop();
+            EtaText = "";
+            EtaTip = "Estimated time to completion";
             _cts.Dispose();
             _cts = null;
         }
@@ -829,6 +860,12 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             _ => "Failed — " + result.Message + (result.Snapshots.Count > 1 ? " Partial results are available." : ""),
         };
         Progress = result.Status == SimulationStatus.Completed ? 100 : Progress;
+        if (_analysis3D && result.Snapshots.Count > 1 && Math.Abs(result.Snapshots[^1].VolumeChangePercent) > VolumeWarningPercent)
+        {
+            string warn = F($"Volume changed by {result.Snapshots[^1].VolumeChangePercent:+0.0;-0.0} %: the mesh is too coarse for the thinnest flash, so fill and load are likely understated. Use Balanced or Accurate mesh quality (Advanced) or a smaller h.");
+            _logQueue.Enqueue("WARNING: " + warn);
+            StatusText += " · " + warn;
+        }
         OnPropertyChanged(nameof(ScrubMaximum));
         OnPropertyChanged(nameof(HasResults));
         OnPropertyChanged(nameof(CanScrub));
@@ -894,6 +931,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         AddPoint(s);
         _plotDirty = true;
         Progress = _totalStroke > 0 ? 100 * s.Stroke / _totalStroke : 0;
+        if (_totalStroke > 0) _eta.Add(_clock.Elapsed.TotalSeconds, s.Stroke / _totalStroke);
         StepText = F($"step {s.Step} / ~{_nominalSteps}");
         OnPropertyChanged(nameof(ScrubMaximum));
         OnPropertyChanged(nameof(HasResults));
@@ -947,11 +985,43 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         CheckSourceFile();
         var t = _clock.Elapsed;
         ElapsedText = F($"{(int)t.TotalMinutes:00}:{t.Seconds:00}.{t.Milliseconds / 100}");
+        if (IsRunning) UpdateEta(t);
         if (_plotDirty)
         {
             _plotDirty = false;
             LoadPlot.InvalidatePlot(true);
         }
+    }
+
+    /// <summary>Remaining time of the running simulation and, in a queue, of the items still pending after it.</summary>
+    private void UpdateEta(TimeSpan elapsed)
+    {
+        if (_eta.RemainingAt(elapsed.TotalSeconds) is not { } left)
+        {
+            EtaText = "ETA …";
+            EtaTip = "Estimated time to completion: available after a few increments";
+            return;
+        }
+
+        var finish = DateTime.Now.AddSeconds(left);
+        string tip = $"Estimated time to completion of this run (finishes about {finish:HH:mm:ss}). Increments slow down near die closure; the estimate follows the recent rate.";
+        int pending = IsQueueRunning ? Queue.Count(q => q.State == QueueItemState.Pending) : 0;
+        if (pending > 0)
+        {
+            double each = _queueRunSeconds.Count > 0 ? _queueRunSeconds.Average() : elapsed.TotalSeconds + left;
+            double queueLeft = left + pending * each;
+            tip += Environment.NewLine + $"Queue: {pending} more item(s), about {Clock(queueLeft)} in all (finishes about {DateTime.Now.AddSeconds(queueLeft):HH:mm})"
+                + (_queueRunSeconds.Count > 0 ? ", from the average of the completed items." : ", assuming they take as long as this one.");
+        }
+
+        EtaText = "ETA " + Clock(left);
+        EtaTip = tip;
+    }
+
+    private static string Clock(double seconds)
+    {
+        var s = TimeSpan.FromSeconds(Math.Ceiling(seconds));
+        return s.TotalHours >= 1 ? F($"{(int)s.TotalHours}:{s.Minutes:00}:{s.Seconds:00}") : F($"{s.Minutes:00}:{s.Seconds:00}");
     }
 
     // ------------------------------------------------------------------ telemetry chart

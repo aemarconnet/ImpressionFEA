@@ -155,9 +155,9 @@
                                                     <c:NumericField Label="Height (z)" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceHeightU}" Quantity="Length" Minimum="1" Maximum="2000" Format="{Binding LengthFormat}" />
                                                 </StackPanel>
                                                 <c:NumericField Label="Rotation about press axis" Unit="°" Value="{Binding WorkpieceAngle}" Quantity="Plain" Minimum="-360" Maximum="360" Format="F1"
-                                                                IsEnabled="{Binding WorkpieceCanRotate}" ToolTip="0° = bar / block aligned with x" />
+                                                                IsEnabled="{Binding WorkpieceCanRotate}" Hint="0° = bar / block aligned with x" />
                                                 <c:NumericField Label="Position X" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetXU}" Quantity="Length" Minimum="-2000" Maximum="2000" Format="{Binding LengthFormat}"
-                                                                ToolTip="Plan position of the workpiece centre; 0 = centre of the bottom die" />
+                                                                Hint="Plan position of the workpiece centre; 0 = centre of the bottom die" />
                                                 <c:NumericField Label="Position Y" Unit="{Binding LengthUnit}" Value="{Binding WorkpieceOffsetYU}" Quantity="Length" Minimum="-2000" Maximum="2000" Format="{Binding LengthFormat}" />
                                                 <DockPanel Margin="0,6,0,0">
                                                     <Button DockPanel.Dock="Right" Content="Size to cavity +10 %" Command="{Binding SizeWorkpieceFromCavityCommand}"
@@ -172,12 +172,12 @@
                                         <TextBlock Text="{Binding SymmetryText}" Style="{StaticResource Note}" />
                                         <c:NumericField Label="Flash land thickness" Unit="{Binding LengthUnit}" Value="{Binding FlashThicknessU}" Quantity="Length" Minimum="0.3" Maximum="8"
                                                         Format="{Binding FineLengthFormat}" Visibility="{Binding HasFlashParameter, Converter={StaticResource BoolToVis}}"
-                                                        ToolTip="Closed gap over the flash land (rebuilds the dies; every other input is kept). Thinner flash = better fill, higher load." />
+                                                        Hint="Closed gap over the flash land (rebuilds the dies; every other input is kept). Thinner flash = better fill, higher load." />
                                         <StackPanel Visibility="{Binding BilletEditable, Converter={StaticResource BoolToVis}}">
                                             <c:NumericField Label="{Binding RadiusLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletRadiusU}" Quantity="Length" Minimum="0.5" Maximum="1000" Format="{Binding LengthFormat}" />
                                             <c:NumericField Label="Billet height H" Unit="{Binding LengthUnit}" Value="{Binding BilletHeightU}" Quantity="Length" Minimum="1" Maximum="3000" Format="{Binding LengthFormat}" IsEnabled="{Binding HeightEnabled}" />
                                             <c:NumericField Label="{Binding LengthLabel}" Unit="{Binding LengthUnit}" Value="{Binding BilletLengthU}" Quantity="Length" Minimum="1" Maximum="3000" Format="{Binding LengthFormat}"
-                                                            IsEnabled="{Binding LengthEnabled}" ToolTip="Plane strain: out-of-plane length. 3D bar: bar length." />
+                                                            IsEnabled="{Binding LengthEnabled}" Hint="Plane strain: out-of-plane length. 3D bar: bar length." />
                                         </StackPanel>
                                         <TextBlock Text="{Binding VolumeText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
@@ -201,22 +201,18 @@
                                         </TextBlock>
                                         <c:NumericField Label="Temperature T" Unit="{Binding TemperatureUnit}" Value="{Binding TemperatureU}" Quantity="Temperature" Minimum="{Binding SelectedMaterial.TMin}" Maximum="{Binding SelectedMaterial.TMax}" Format="F0" />
                                         <c:NumericField Label="Shear friction factor m" Unit="–" Value="{Binding Friction}" Quantity="Plain" Minimum="0" Maximum="1" Format="F2"
-                                                        ToolTip="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
+                                                        Hint="Constant shear friction τ = m·k (0 = frictionless, 1 = sticking)" />
                                         <TextBlock Text="{Binding MaterialText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <TextBlock Text="Mesh" Style="{StaticResource SectionHeader}" />
-                                        <c:NumericField Label="Target element size h" Unit="{Binding LengthUnit}" Value="{Binding ElementSizeU}" Quantity="Length" Minimum="0.1" Maximum="50" Format="{Binding FineLengthFormat}" />
+                                        <c:NumericField Label="Target element size h" Unit="{Binding LengthUnit}" Value="{Binding ElementSizeU}" Quantity="Length" Minimum="0.1" Maximum="50" Format="{Binding FineLengthFormat}"
+                                                        AllowAuto="True" IsAuto="{Binding ElementSizeIsAuto}" Hint="{Binding ElementSizeHint}" />
                                         <TextBlock Text="{Binding MeshText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
 
                                         <TextBlock Text="Press" Style="{StaticResource SectionHeader}" />
                                         <c:NumericField Label="Ram speed v" Unit="{Binding SpeedUnit}" Value="{Binding RamSpeedU}" Quantity="Length" Minimum="0.01" Maximum="10000" Format="{Binding LengthFormat}" />
                                         <c:NumericField Label="Press capacity" Unit="{Binding LoadUnit}" Value="{Binding PressCapacityU}" Quantity="Load" Minimum="1" Maximum="100000" Format="{Binding LoadInputFormat}" />
                                         <TextBlock Text="{Binding PressText}" Style="{StaticResource Note}" FontFamily="{StaticResource Mono}" />
-
-                                        <Border Margin="0,12,0,0" Padding="8,6" BorderThickness="1" BorderBrush="{StaticResource Warn}" Background="#FFF8EC"
-                                                Visibility="{Binding HasInputWarning, Converter={StaticResource BoolToVis}}">
-                                            <TextBlock Text="{Binding InputWarning}" Foreground="{StaticResource Warn}" TextWrapping="Wrap" FontSize="11" />
-                                        </Border>
                                     </StackPanel>
                                 </StackPanel>
                             </ScrollViewer>
@@ -226,8 +222,17 @@
                         <TabItem Header="Advanced" Padding="14,4">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Margin="8,0,8,12" IsEnabled="{Binding CanEdit}">
+                                    <TextBlock Text="Mesh quality (3D)" Style="{StaticResource SectionHeader}" />
+                                    <DockPanel Margin="0,4,0,0">
+                                        <ComboBox DockPanel.Dock="Right" Width="120" ItemsSource="{Binding MeshQualities}" SelectedItem="{Binding MeshQuality}"
+                                                  ToolTip="{Binding MeshQualityHint}" />
+                                        <TextBlock Text="Accuracy vs run time" VerticalAlignment="Center" ToolTip="{Binding MeshQualityHint}" />
+                                    </DockPanel>
+                                    <TextBlock Style="{StaticResource Note}" Text="{Binding MeshQualityHint}" TextWrapping="Wrap" />
+
                                     <TextBlock Text="Increment" Style="{StaticResource SectionHeader}" />
-                                    <c:NumericField Label="Stroke increment Δs" Unit="{Binding LengthUnit}" Value="{Binding StrokeIncrementU}" Quantity="Length" Minimum="0.01" Maximum="10" Format="{Binding FineLengthFormat}" />
+                                    <c:NumericField Label="Stroke increment Δs" Unit="{Binding LengthUnit}" Value="{Binding StrokeIncrementU}" Quantity="Length" Minimum="0.01" Maximum="10" Format="{Binding FineLengthFormat}"
+                                                    AllowAuto="True" IsAuto="{Binding StrokeIncrementIsAuto}" Hint="{Binding StrokeIncrementHint}" />
                                     <TextBlock Style="{StaticResource Note}" Text="Nominal ram travel per increment (≤ 0.4·h). With auto time-stepping the solver shrinks it where needed and grows it back." />
 
                                     <TextBlock Text="Robustness (3D solver)" Style="{StaticResource SectionHeader}" />
@@ -246,9 +251,11 @@
                                     <CheckBox Content="Also refine thin flash regions" IsChecked="{Binding RefineThinFlash}" Margin="0,6,0,0" />
                                     <TextBlock Style="{StaticResource Note}" Text="Refines wherever the closed die gap is under 2.5·h. Better flash resolution; more nodes and solve time." />
                                     <c:NumericField Label="Remesh below quality" Unit="–" Value="{Binding RemeshQualityThreshold}" Quantity="Plain" Minimum="0.02" Maximum="0.4" Format="F2"
-                                                    ToolTip="Normalised element quality (1 = regular tetrahedron). Lower = fewer remeshes, higher = earlier remeshing." />
+                                                    Hint="Normalised element quality (1 = regular tetrahedron). Lower = fewer remeshes, higher = earlier remeshing." />
                                     <c:NumericField Label="Node budget" Unit="nodes" Value="{Binding MaxNodeCount}" Quantity="Plain" Minimum="1000" Maximum="60000" Format="F0"
-                                                    ToolTip="Upper limit for the initial mesh and for local refinement (memory and time grow with it)." />
+                                                    Hint="Upper limit for the initial mesh and for local refinement (memory and time grow with it)." />
+                                    <c:NumericField Label="Target nodes (automatic h)" Unit="nodes" Value="{Binding TargetNodes}" Quantity="Plain" Minimum="1000" Maximum="60000" Format="F0"
+                                                    Hint="Node count the automatic element size aims for (3D, modelled portion). Kept between sessions; capped by the node budget." />
 
                                     <TextBlock Text="Nonlinear solver (3D)" Style="{StaticResource SectionHeader}" />
                                     <c:NumericField Label="Max iterations per increment" Unit="" Value="{Binding MaxIterations}" Quantity="Plain" Minimum="5" Maximum="500" Format="F0" />
@@ -279,8 +286,8 @@
                                                 ToolTip="Load the demo, then open Multi-run with the demo's suggested sweep" />
                                     </Grid>
                                     <TextBlock Style="{StaticResource Note}" Margin="0,8,0,0" TextWrapping="Wrap">
-                                        <Run Text="Demos are JSON files (setup + instructions + suggested sweep). Add or edit them in" />
-                                        <Hyperlink Click="OpenDemoFolder_Click"><Run Text="samples/demos" /></Hyperlink>
+                                        <Run Text="Demos are JSON files (setup + instructions + suggested sweep). Add your own, or edited copies of the built-in ones, in" />
+                                        <Hyperlink Click="OpenDemoFolder_Click" ToolTip="{Binding DemoFolder}"><Run Text="Documents\ImpressionFEA\demos" /></Hyperlink>
                                         <Run Text="and press" />
                                         <Hyperlink Command="{Binding ReloadDemosCommand}"><Run Text="Reload" /></Hyperlink><Run Text="." />
                                     </TextBlock>
@@ -470,6 +477,35 @@
                                        RangeMin="{Binding RangeMin}" RangeMax="{Binding RangeMax}" ShowField="{Binding ShowFieldColors}"
                                        CutAway="{Binding CutAway}" ShowDies="{Binding ShowDies}" PartLength="{Binding ShownPartLength}"
                                        ViewBounds="{Binding ViewBounds}" Visibility="{Binding Is3D, Converter={StaticResource BoolToVis}}" />
+                    <!-- Input errors and warnings, over the top left of the 2D / 3D view (below the title) -->
+                    <Border x:Name="IssuesOverlay" Grid.Row="2" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,48,0,0" Width="400"
+                            Padding="10,6,10,10" CornerRadius="3" BorderThickness="1" BorderBrush="{StaticResource PanelBorder}" Background="#F2FFFFFF"
+                            Visibility="{Binding ShowIssues, Converter={StaticResource BoolToVis}}">
+                        <StackPanel>
+                            <Button Command="{Binding ToggleIssuesCommand}" Cursor="Hand" Background="Transparent" BorderThickness="0" Padding="0"
+                                    HorizontalAlignment="Left" HorizontalContentAlignment="Left" ToolTip="Show or hide the messages">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="⚠" Margin="0,0,6,0" FontSize="13"
+                                               Foreground="{StaticResource Warn}" />
+                                    <TextBlock Text="{Binding IssueSummary}" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{StaticResource Ink}" />
+                                    <TextBlock Text="  ▾" Foreground="{StaticResource Muted}" VerticalAlignment="Center"
+                                               Visibility="{Binding IssuesExpanded, Converter={StaticResource NotBoolToVis}}" />
+                                    <TextBlock Text="  ▴" Foreground="{StaticResource Muted}" VerticalAlignment="Center"
+                                               Visibility="{Binding IssuesExpanded, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                            </Button>
+                            <StackPanel Visibility="{Binding IssuesExpanded, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Margin="0,6,0,0" Visibility="{Binding HasInputErrors, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="{Binding ErrorHeading}" FontWeight="SemiBold" Foreground="{StaticResource Danger}" FontSize="11.5" />
+                                    <TextBlock Text="{Binding ErrorText}" Foreground="{StaticResource Danger}" TextWrapping="Wrap" FontSize="11.5" Margin="0,2,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,6,0,0" Visibility="{Binding HasInputWarnings, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="Warning" FontWeight="SemiBold" Foreground="{StaticResource Warn}" FontSize="11.5" />
+                                    <TextBlock Text="{Binding WarningText}" Foreground="{StaticResource Warn}" TextWrapping="Wrap" FontSize="11.5" Margin="0,2,0,0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                     <Border Grid.Row="3" Background="{StaticResource PanelBorder}" />
                     <Grid Grid.Row="4" Margin="10,6,10,8">
                         <Grid.RowDefinitions>
@@ -883,6 +919,8 @@
                 </Button>
                 <TextBlock DockPanel.Dock="Right" Text="{Binding ElapsedText}" FontFamily="{StaticResource Mono}" FontSize="14"
                            VerticalAlignment="Center" Margin="12,0,4,0" ToolTip="Execution time" />
+                <TextBlock DockPanel.Dock="Right" Text="{Binding EtaText}" FontFamily="{StaticResource Mono}" FontSize="12"
+                           VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource Muted}" ToolTip="{Binding EtaTip}" />
                 <TextBlock DockPanel.Dock="Right" Text="{Binding StepText}" FontFamily="{StaticResource Mono}" VerticalAlignment="Center"
                            Margin="10,0,0,0" Width="122" TextAlignment="Right" TextTrimming="CharacterEllipsis" />
                 <ProgressBar DockPanel.Dock="Right" Width="150" Height="10" Value="{Binding Progress, Mode=OneWay}" Maximum="100"

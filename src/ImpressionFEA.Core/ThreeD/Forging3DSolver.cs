@@ -98,12 +98,6 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     private Vec3[] _gCoef = null!;
     private double[] _vNode = null!;
 
-    private readonly double[] _ke = new double[144];
-    private readonly double[] _re = new double[12];
-    private readonly double[] _ve = new double[12];
-    private readonly double[] _b = new double[72];
-    private readonly double[] _mb = new double[72];
-    private readonly double[] _g = new double[12];
 
     public Forging3DSolver(SimulationConfig3D config, Action<string>? log = null)
     {
@@ -187,6 +181,29 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
     private TetMesh BuildMesh(Vec3[] points, int[] tets) =>
         new(points.Length, tets, points.Select(p => _symX && p.X == 0).ToArray(), points.Select(p => _symY && p.Y == 0).ToArray());
+
+    /// <summary>Largest compression of the thinnest die-held layer per increment (fraction of its thickness).</summary>
+    public const double LayerStrainPerIncrement = 0.1;
+
+    /// <summary>
+    /// Stroke increment that compresses the thinnest layer of metal held between the two dies by at most
+    /// <see cref="LayerStrainPerIncrement"/>: the step shrinks ahead of time as the flash thins, instead of the
+    /// increment failing and being cut back. The layer is measured at the surface nodes touching the top die.
+    /// </summary>
+    private double LayerLimitedIncrement()
+    {
+        double thinnest = double.PositiveInfinity;
+        for (int n = 0; n < _nn; n++)
+        {
+            if (_contact[n] != NodeContact.TopDie) continue;
+            double zb = _die.Bottom.SurfaceZ(_x[n].X, _x[n].Y), zt = _die.TopClosed.SurfaceZ(_x[n].X, _x[n].Y) + _gap;
+            if (double.IsFinite(zb) && double.IsFinite(zt) && zt > zb) thinnest = Math.Min(thinnest, zt - zb);
+        }
+
+        return double.IsFinite(thinnest)
+            ? Math.Max(LayerStrainPerIncrement * thinnest, _cfg.StrokeIncrement / (1 << _cfg.MaxCutbacks))
+            : double.PositiveInfinity;
+    }
 
     /// <summary>Places where an increment failed; later remeshes refine around them (die corners are fixed in space).</summary>
     private readonly List<(Vec3 At, int Level)> _hotSpots = [];
@@ -277,7 +294,36 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         _vTrial = new double[_ndof];
         _rvol = new double[_ndof];
         _vNode = new double[_nn];
+        _hLocal = LocalLengths(mesh, x);
         BuildPattern();
+    }
+
+    /// <summary>Local element size at each node (mean length of its edges); contact tolerances scale with it, not with h.</summary>
+    private double[] _hLocal = [];
+
+    private double[] LocalLengths(TetMesh mesh, Vec3[] x)
+    {
+        var sum = new double[mesh.NodeCount];
+        var count = new int[mesh.NodeCount];
+        var t = mesh.Tets;
+        for (int e = 0; e < mesh.ElementCount; e++)
+        {
+            for (int a = 0; a < 4; a++)
+            {
+                for (int b = a + 1; b < 4; b++)
+                {
+                    int i = t[4 * e + a], j = t[4 * e + b];
+                    double l = (x[i] - x[j]).Length;
+                    sum[i] += l;
+                    sum[j] += l;
+                    count[i]++;
+                    count[j]++;
+                }
+            }
+        }
+
+        for (int n = 0; n < sum.Length; n++) sum[n] = count[n] > 0 ? Math.Min(sum[n] / count[n], _h) : _h;
+        return sum;
     }
 
     /// <summary>Sparsity pattern: nodes i, j couple when both lie in the patch of some node (ANP two-ring stencil).</summary>
@@ -392,13 +438,15 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             double power = FinalEvaluation(out reaction);
             load = power / _ram * _symFactor;
             reaction *= _symFactor;
-            double ds = _cfg.AutoStep ? _ds : _cfg.StrokeIncrement;
+            double ds = Math.Min(_cfg.AutoStep ? _ds : _cfg.StrokeIncrement, LayerLimitedIncrement());
             dt = Math.Min(ds, _gap) / _ram;
             if (_gap - _ram * dt < 0.05 * ds) dt = _gap / _ram;
             for (int attempt = 0; attempt <= _cfg.MaxCutbacks && !ok; attempt++)
             {
                 double dta = dt / (1 << attempt);
+                long u0 = Stopwatch.GetTimestamp();
                 ok = TryUpdate(dta, out why);
+                _tUpdate += Stopwatch.GetElapsedTime(u0).TotalSeconds;
                 if (ok)
                 {
                     dt = dta;
@@ -441,6 +489,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         _warm = true;
         var snap = MakeSnapshot(StepIndex, load, iterations);
         _log(F($"step {StepIndex,4} | stroke {snap.Stroke,8:F3} mm | it {iterations,2} | load {load / 9806.65,9:F2} t (reaction {reaction / 9806.65:F2} t) | fill {snap.FillPercent,6:F2} % | ΔV {snap.VolumeChangePercent,6:F3} % | {_ne} tets | {sw.Elapsed.TotalMilliseconds,7:F0} ms"));
+        _tTotal += sw.Elapsed.TotalSeconds;
+        if (IsFinished) _log(TimingSummary);
         return snap;
     }
 
@@ -688,7 +738,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             // Newton for fast convergence; if it stalls (typically during the final flash squeeze, where contact and
             // the rate cut-off switch state), fall back to Picard, which decreases the convex functional monotonically.
             bool newton = (_warm || it > 2) && it <= NewtonLimit;
-            double e0 = Assemble(true, newton, _v, out _);
+            double e0 = Timed(ref _tAssemble, () => Assemble(true, newton, _v, out _));
             double maxDiag = 0;
             for (int j = 0; j < _ndof; j++)
             {
@@ -724,7 +774,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             for (int ls = 0; ls < 8; ls++)
             {
                 for (int d = 0; d < _ndof; d++) _vTrial[d] = _v[d] + beta * _dv[d];
-                double e1 = Assemble(false, false, _vTrial, out _);
+                double e1 = Timed(ref _tAssemble, () => Assemble(false, false, _vTrial, out _));
                 if (e1 <= e0 + 1e-4 * beta * slope + 1e-11 * Math.Abs(e0)) break;
                 beta *= 0.5;
             }
@@ -769,14 +819,27 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             _pq = new double[_ndof];
         }
 
-        if (_haveFactor)
+        if (_haveFactor && _pcgSkip > 0)
+        {
+            _pcgSkip--;
+        }
+        else if (_haveFactor)
         {
             // Keep iterating as long as it is cheaper than refactorising.
             int budget = (int)Math.Clamp(0.8 * _factorMs / Math.Max(_pcgIterMs, 1e-3), 6, 400);
             long p0 = Stopwatch.GetTimestamp();
             int its = Pcg(b, x, 1e-7, budget, out int done);
             _pcgIterMs = Stopwatch.GetElapsedTime(p0).TotalMilliseconds / Math.Max(done + 1, 1);
-            if (its >= 0) return F($"pcg {its}");
+            _tPcg += Stopwatch.GetElapsedTime(p0).TotalSeconds;
+            if (its >= 0)
+            {
+                _pcgFailures = 0;
+                return F($"pcg {its}");
+            }
+
+            // A failed attempt costs almost a factorisation on top of the one that follows: after two failures in a
+            // row go straight to factorising for 2, 4, 8 … solves (≤ 64) before trying the preconditioner again.
+            if (++_pcgFailures >= 2) _pcgSkip = Math.Min(64, 1 << (_pcgFailures - 1));
         }
 
         long f0 = Stopwatch.GetTimestamp();
@@ -799,6 +862,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
         _haveFactor = true;
         _factorMs = Stopwatch.GetElapsedTime(f0).TotalMilliseconds;
+        _tFactor += _factorMs / 1000;
         return _lin.FactorNonZeros > 0 ? F($"fact {_lin.FactorNonZeros / 1e6:F1}M") : "fact";
     }
 
@@ -826,6 +890,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
     private double _factorMs = 1000;
     private double _pcgIterMs = 10;
+
+    private int _pcgFailures, _pcgSkip;
 
     /// <summary>Preconditioned CG with the cached Cholesky factor; returns iterations or -1 if not converged.</summary>
     private int Pcg(double[] b, double[] x, double tol, int maxIt, out int done)
@@ -910,60 +976,47 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         if (matrix) Array.Copy(_kvol, _val, _val.Length);
 
         var t = _t.Tets;
-        Span<double> blk = stackalloc double[9];
-        var tmp = new double[9];
-        Span<double> s = stackalloc double[3];
+        EnsureElementBuffers(matrix);
+
+        // Phase 1, in parallel: element residuals (local nodal frames) and rotated stiffness blocks into per-element
+        // storage. Phase 2, serial: scatter and sum in element order, so results do not depend on the thread count.
+        Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(0, _ne, Math.Max(64, _ne / (4 * Environment.ProcessorCount))),
+            () => new ElementScratch(),
+            (range, _, w) =>
+            {
+                for (int e = range.Item1; e < range.Item2; e++) ElementWork(e, matrix, newton, v, w);
+                return w;
+            },
+            _ => { });
+
         for (int e = 0; e < _ne; e++)
         {
-            for (int a = 0; a < 4; a++)
-            {
-                var g = GlobalVelocity(v, t[4 * e + a]);
-                _ve[3 * a] = g.X;
-                _ve[3 * a + 1] = g.Y;
-                _ve[3 * a + 2] = g.Z;
-            }
-
-            Kernel(e, matrix, newton, ref energy, ref power);
-
+            energy += _eEnergy[e];
+            power += _ePower[e];
             for (int a = 0; a < 4; a++)
             {
                 int n = t[4 * e + a];
-                var rl = ToLocal(n, new Vec3(_re[3 * a], _re[3 * a + 1], _re[3 * a + 2]));
-                _r[3 * n] += rl.X;
-                _r[3 * n + 1] += rl.Y;
-                _r[3 * n + 2] += rl.Z;
+                _r[3 * n] += _eR[12 * e + 3 * a];
+                _r[3 * n + 1] += _eR[12 * e + 3 * a + 1];
+                _r[3 * n + 2] += _eR[12 * e + 3 * a + 2];
             }
 
             if (!matrix) continue;
             for (int a = 0; a < 4; a++)
             {
-                int i = t[4 * e + a];
                 for (int b = 0; b < 4; b++)
                 {
-                    int j = t[4 * e + b];
-                    // R_i K_ab R_jᵀ
-                    for (int r = 0; r < 3; r++)
+                    int j = t[4 * e + b], k = _eNbr[16 * e + 4 * a + b], o = 144 * e + 9 * (4 * a + b);
+                    for (int cj = 0; cj < 3; cj++)
                     {
-                        var ar = Axis(i, r);
-                        for (int c = 0; c < 3; c++)
-                        {
-                            blk[3 * r + c] = ar.X * _ke[(3 * a) * 12 + 3 * b + c] + ar.Y * _ke[(3 * a + 1) * 12 + 3 * b + c] + ar.Z * _ke[(3 * a + 2) * 12 + 3 * b + c];
-                        }
+                        int p = _colPtr[3 * j + cj] + 3 * k;
+                        for (int ci = 0; ci < 3; ci++) _val[p + ci] += _eK[o + 3 * ci + cj];
                     }
-
-                    for (int r = 0; r < 3; r++)
-                    {
-                        for (int c = 0; c < 3; c++)
-                        {
-                            var bc = Axis(j, c);
-                            tmp[3 * r + c] = blk[3 * r] * bc.X + blk[3 * r + 1] * bc.Y + blk[3 * r + 2] * bc.Z;
-                        }
-                    }
-
-                    AddBlock(_val, i, j, tmp, 3, 0, 0, 1);
                 }
             }
         }
+
+        Span<double> s = stackalloc double[3];
 
         // Vector shear friction on the free (tangential) axes of contact nodes.
         double m = _cfg.FrictionFactor;
@@ -1009,28 +1062,121 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         return energy;
     }
 
-    private void Kernel(int e, bool matrix, bool newton, ref double energy, ref double power)
+    /// <summary>Per-thread work arrays of the element kernel.</summary>
+    private sealed class ElementScratch
+    {
+        public readonly double[] Ke = new double[144];
+        public readonly double[] Re = new double[12];
+        public readonly double[] Ve = new double[12];
+        public readonly double[] B = new double[72];
+        public readonly double[] MB = new double[72];
+        public readonly double[] G = new double[12];
+        public readonly double[] Blk = new double[9];
+    }
+
+    // Per-element results of the parallel phase of Assemble (residual in local frames, rotated 3×3 blocks, energy,
+    // power) and, per mesh, the neighbour index of each element node pair in the sparsity pattern.
+    private double[] _eR = [], _eK = [], _eEnergy = [], _ePower = [];
+    private int[] _eNbr = [];
+    private TetMesh? _eNbrMesh;
+
+    private void EnsureElementBuffers(bool matrix)
+    {
+        if (_eR.Length != 12 * _ne)
+        {
+            _eR = new double[12 * _ne];
+            _eEnergy = new double[_ne];
+            _ePower = new double[_ne];
+        }
+
+        if (!matrix) return;
+        if (_eK.Length != 144 * _ne) _eK = new double[144 * _ne];
+        if (!ReferenceEquals(_eNbrMesh, _t) || _eNbr.Length != 16 * _ne)
+        {
+            var t = _t.Tets;
+            _eNbr = new int[16 * _ne];
+            for (int e = 0; e < _ne; e++)
+            {
+                for (int a = 0; a < 4; a++)
+                {
+                    for (int b = 0; b < 4; b++) _eNbr[16 * e + 4 * a + b] = Array.BinarySearch(_nbr[t[4 * e + b]], t[4 * e + a]);
+                }
+            }
+
+            _eNbrMesh = _t;
+        }
+    }
+
+    /// <summary>One element: kernel, residual rotated into the local nodal frames, stiffness blocks R_i K_ab R_jᵀ.</summary>
+    private void ElementWork(int e, bool matrix, bool newton, double[] v, ElementScratch w)
+    {
+        var t = _t.Tets;
+        for (int a = 0; a < 4; a++)
+        {
+            var g = GlobalVelocity(v, t[4 * e + a]);
+            w.Ve[3 * a] = g.X;
+            w.Ve[3 * a + 1] = g.Y;
+            w.Ve[3 * a + 2] = g.Z;
+        }
+
+        Kernel(e, matrix, newton, w, out _eEnergy[e], out _ePower[e]);
+        for (int a = 0; a < 4; a++)
+        {
+            var rl = ToLocal(t[4 * e + a], new Vec3(w.Re[3 * a], w.Re[3 * a + 1], w.Re[3 * a + 2]));
+            _eR[12 * e + 3 * a] = rl.X;
+            _eR[12 * e + 3 * a + 1] = rl.Y;
+            _eR[12 * e + 3 * a + 2] = rl.Z;
+        }
+
+        if (!matrix) return;
+        var blk = w.Blk;
+        for (int a = 0; a < 4; a++)
+        {
+            int i = t[4 * e + a];
+            for (int b = 0; b < 4; b++)
+            {
+                int j = t[4 * e + b], o = 144 * e + 9 * (4 * a + b);
+                for (int r = 0; r < 3; r++)
+                {
+                    var ar = Axis(i, r);
+                    for (int c = 0; c < 3; c++)
+                        blk[3 * r + c] = ar.X * w.Ke[(3 * a) * 12 + 3 * b + c] + ar.Y * w.Ke[(3 * a + 1) * 12 + 3 * b + c] + ar.Z * w.Ke[(3 * a + 2) * 12 + 3 * b + c];
+                }
+
+                for (int r = 0; r < 3; r++)
+                {
+                    for (int c = 0; c < 3; c++)
+                    {
+                        var bc = Axis(j, c);
+                        _eK[o + 3 * r + c] = blk[3 * r] * bc.X + blk[3 * r + 1] * bc.Y + blk[3 * r + 2] * bc.Z;
+                    }
+                }
+            }
+        }
+    }
+
+    private void Kernel(int e, bool matrix, bool newton, ElementScratch w, out double energy, out double power)
     {
         double vol = _vol[e];
         int o = 12 * e;
-        Array.Clear(_b);
+        Array.Clear(w.B);
         for (int a = 0; a < 4; a++)
         {
             double bx = _grad[o + 3 * a], by = _grad[o + 3 * a + 1], bz = _grad[o + 3 * a + 2];
             int c = 3 * a;
-            _b[0 * 12 + c] = bx;
-            _b[1 * 12 + c + 1] = by;
-            _b[2 * 12 + c + 2] = bz;
-            _b[3 * 12 + c] = by; _b[3 * 12 + c + 1] = bx;
-            _b[4 * 12 + c + 1] = bz; _b[4 * 12 + c + 2] = by;
-            _b[5 * 12 + c] = bz; _b[5 * 12 + c + 2] = bx;
+            w.B[0 * 12 + c] = bx;
+            w.B[1 * 12 + c + 1] = by;
+            w.B[2 * 12 + c + 2] = bz;
+            w.B[3 * 12 + c] = by; w.B[3 * 12 + c + 1] = bx;
+            w.B[4 * 12 + c + 1] = bz; w.B[4 * 12 + c + 2] = by;
+            w.B[5 * 12 + c] = bz; w.B[5 * 12 + c + 2] = bx;
         }
 
         Span<double> eps = stackalloc double[6];
         for (int i = 0; i < 6; i++)
         {
             double s = 0;
-            for (int k = 0; k < 12; k++) s += _b[i * 12 + k] * _ve[k];
+            for (int k = 0; k < 12; k++) s += w.B[i * 12 + k] * w.Ve[k];
             eps[i] = s;
         }
 
@@ -1043,8 +1189,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         for (int k = 0; k < 12; k++)
         {
             double s = 0;
-            for (int i = 0; i < 6; i++) s += _b[i * 12 + k] * me[i];
-            _g[k] = s;
+            for (int i = 0; i < 6; i++) s += w.B[i * 12 + k] * me[i];
+            w.G[k] = s;
         }
 
         double strain = _eps[e];
@@ -1066,9 +1212,9 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             coefN = 0;
         }
 
-        energy += vol * wDens;
-        power += vol * sig * rate;
-        for (int k = 0; k < 12; k++) _re[k] = vol * mu * _g[k];
+        energy = vol * wDens;
+        power = vol * sig * rate;
+        for (int k = 0; k < 12; k++) w.Re[k] = vol * mu * w.G[k];
         _elSig[e] = sig;
         _elRate[e] = rate;
         for (int i = 0; i < 6; i++) _elDev[6 * e + i] = mu * me[i];
@@ -1076,13 +1222,13 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
         for (int k = 0; k < 12; k++)
         {
-            double tr = (_b[k] + _b[12 + k] + _b[24 + k]) / 3;
-            _mb[k] = 2.0 / 3.0 * (_b[k] - tr);
-            _mb[12 + k] = 2.0 / 3.0 * (_b[12 + k] - tr);
-            _mb[24 + k] = 2.0 / 3.0 * (_b[24 + k] - tr);
-            _mb[36 + k] = _b[36 + k] / 3;
-            _mb[48 + k] = _b[48 + k] / 3;
-            _mb[60 + k] = _b[60 + k] / 3;
+            double tr = (w.B[k] + w.B[12 + k] + w.B[24 + k]) / 3;
+            w.MB[k] = 2.0 / 3.0 * (w.B[k] - tr);
+            w.MB[12 + k] = 2.0 / 3.0 * (w.B[12 + k] - tr);
+            w.MB[24 + k] = 2.0 / 3.0 * (w.B[24 + k] - tr);
+            w.MB[36 + k] = w.B[36 + k] / 3;
+            w.MB[48 + k] = w.B[48 + k] / 3;
+            w.MB[60 + k] = w.B[60 + k] / 3;
         }
 
         double wm = vol * mu, wn = newton ? vol * coefN : 0;
@@ -1091,10 +1237,10 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             for (int q = p; q < 12; q++)
             {
                 double s = 0;
-                for (int i = 0; i < 6; i++) s += _b[i * 12 + p] * _mb[i * 12 + q];
-                double val = wm * s + wn * _g[p] * _g[q];
-                _ke[p * 12 + q] = val;
-                _ke[q * 12 + p] = val;
+                for (int i = 0; i < 6; i++) s += w.B[i * 12 + p] * w.MB[i * 12 + q];
+                double val = wm * s + wn * w.G[p] * w.G[q];
+                w.Ke[p * 12 + q] = val;
+                w.Ke[q * 12 + p] = val;
             }
         }
     }
@@ -1158,7 +1304,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         var cT = new NodeContact[_nn];
         var pred = new Vec3[_nn];
         var nrm = SurfaceNormals(_t, _x);
-        double tolSep = 0.05 * _h, maxPen = 0;
+        double maxPen = 0, maxPenRel = 0;
         for (int n = 0; n < _nn; n++)
         {
             var p = Sym(_x[n] + dt * _vg[n], n);
@@ -1168,7 +1314,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             {
                 var surf = Surface(c);
                 double off = Offset(c, gapT);
-                if (surf.Clearance(p, off) > tolSep) cT[n] = NodeContact.Free;
+                if (surf.Clearance(p, off) > 0.05 * Tol(_hLocal[n])) cT[n] = NodeContact.Free;
                 else
                 {
                     p = Sym(surf.Project(p, off, out _), n);
@@ -1182,7 +1328,9 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
                 {
                     var hit = cb <= ctp ? NodeContact.BottomDie : NodeContact.TopDie;
                     var q = Sym(Surface(hit).Project(p, Offset(hit, gapT), out _), n);
-                    maxPen = Math.Max(maxPen, (q - p).Length);
+                    double pen = (q - p).Length;
+                    maxPen = Math.Max(maxPen, pen);
+                    maxPenRel = Math.Max(maxPenRel, pen / Tol(_hLocal[n]));
                     p = q;
                     cT[n] = hit;
                 }
@@ -1191,9 +1339,9 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             xT[n] = p;
         }
 
-        if (maxPen > 0.5 * _h)
+        if (maxPenRel > 0.5)
         {
-            why = F($"die penetration {maxPen:F3} mm exceeds h/2");
+            why = F($"die penetration {maxPen:F3} mm exceeds half the local element size");
             return false;
         }
 
@@ -1201,7 +1349,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         // Snapping nodes onto the die can flatten a tet whatever the step size, typically where several nodes are
         // pulled onto the same sharp die edge or corner (imported CAD dies have no fillets). Leave the nodes of such
         // tets at their predicted positions when the penetration is small; contact picks them up again next step.
-        int reverted = ImprovePlacement(_t, xT, cT, pred, nrm, gapT, 0.05);
+        int reverted = ImprovePlacement(_t, xT, cT, pred, nrm, gapT, 0.05, _hLocal);
         if (reverted > 0) ProjectionReverts += reverted;
         SmoothInterior(_t, xT, 0.05, 6);
         for (int e = 0; e < _ne; e++)
@@ -1285,12 +1433,24 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     }
 
     /// <summary>
-    /// Penetration (× h) tolerated at sharp die corners to keep elements valid: strict normally, relaxed step by step
-    /// only while the recovery ladder handles a failing increment (accuracy first, robustness when needed).
+    /// Penetration (× the local element size) tolerated at sharp die corners to keep elements valid in the normal pass
+    /// and the first recovery pass (accuracy first).
     /// </summary>
-    private static readonly double[] CornerPenetrationLadder = [0.1, 0.2, 0.3, 0.3];
+    private static readonly double[] CornerPenetrationLadder = [0.05, 0.1];
 
-    private double MaxCornerPenetration => CornerPenetrationLadder[Math.Clamp(_recoveryPass, 0, CornerPenetrationLadder.Length - 1)];
+    /// <summary>
+    /// The last two recovery passes of a failing increment (remesh with local refinement) fall back to tolerances on the
+    /// global h, as before local refinement existed: refined elements squeezed against a die wall can need more room than
+    /// their small size allows to come out valid. Normal increments use the strict local tolerances.
+    /// </summary>
+    private bool Lenient => _recoveryPass >= 2;
+
+    /// <summary>Length a contact tolerance scales with: the local element size at the node, or h in the lenient passes.</summary>
+    private double Tol(double local) => Lenient ? _h : local;
+
+    /// <summary>Penetration a node of local size <paramref name="local"/> may keep at a die corner in the current pass, mm.</summary>
+    private double CornerAllowance(double local) =>
+        Lenient ? 0.3 * _h : CornerPenetrationLadder[Math.Clamp(_recoveryPass, 0, CornerPenetrationLadder.Length - 1)] * local;
 
     private int _recoveryPass;
 
@@ -1306,7 +1466,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     /// it barely penetrates — the unprojected position <paramref name="pred"/>, keeping whichever gives its tets the
     /// best worst-case quality. Returns the number of nodes moved.
     /// </summary>
-    private int ImprovePlacement(TetMesh mesh, Vec3[] x, NodeContact[] contact, Vec3[] pred, Vec3[] nrm, double gap, double qMin)
+    private int ImprovePlacement(TetMesh mesh, Vec3[] x, NodeContact[] contact, Vec3[] pred, Vec3[] nrm, double gap, double qMin, double[] hLoc)
     {
         var t = mesh.Tets;
         int total = 0;
@@ -1327,13 +1487,13 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
                     var closest = SymOn(mesh, die.Project(pred[n], off, out _), n);
                     cand[k++] = closest;
                     var push = SymOn(mesh, PushOut(die, off, pred[n], nrm[n]), n);
-                    if ((push - pred[n]).Length <= 0.5 * _h) cand[k++] = push;
+                    if ((push - pred[n]).Length <= 0.5 * Tol(hLoc[n])) cand[k++] = push;
                     double pen = -die.Clearance(pred[n], off);
-                    // Partial pushes: a node may stay slightly inside a sharp die corner (≤ MaxCornerPenetration·h)
+                    // Partial pushes: a node may stay slightly inside a sharp die corner (≤ CornerAllowance)
                     // when every full projection would invert an element; it is pushed out over the next increments.
                     foreach (double f in (ReadOnlySpan<double>)[0.0, 0.25, 0.5, 0.75])
                     {
-                        if (pen * (1 - f) <= MaxCornerPenetration * _h) cand[k++] = Vec3.Lerp(pred[n], closest, f);
+                        if (pen * (1 - f) <= CornerAllowance(hLoc[n])) cand[k++] = Vec3.Lerp(pred[n], closest, f);
                     }
 
                     var old = x[n];
@@ -1564,7 +1724,43 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         return maxEdge > 2.8 * _h ? F($"surface stretched ({maxEdge:F2} mm edges)") : null;
     }
 
+    // ------------------------------------------------------------------ run-time profile
+
+    private double _tAssemble, _tFactor, _tPcg, _tUpdate, _tRemesh, _tTotal;
+
+    private static double Timed(ref double total, Func<double> work)
+    {
+        long t0 = Stopwatch.GetTimestamp();
+        double r = work();
+        total += Stopwatch.GetElapsedTime(t0).TotalSeconds;
+        return r;
+    }
+
+    /// <summary>Where the solve time went (logged when the dies close).</summary>
+    public string TimingSummary
+    {
+        get
+        {
+            double other = Math.Max(0, _tTotal - _tAssemble - _tFactor - _tPcg - _tUpdate - _tRemesh);
+            string P(double t) => _tTotal > 0 ? F($"{t:F1} s ({100 * t / _tTotal:F0} %)") : "0 s";
+            return F($"Time profile : {_tTotal:F1} s — assembly {P(_tAssemble)}, factorisation {P(_tFactor)}, PCG {P(_tPcg)}, contact update {P(_tUpdate)}, remeshing {P(_tRemesh)}, other {P(other)}");
+        }
+    }
+
     private bool Remesh(string reason)
+    {
+        long t0 = Stopwatch.GetTimestamp();
+        try
+        {
+            return RemeshCore(reason);
+        }
+        finally
+        {
+            _tRemesh += Stopwatch.GetElapsedTime(t0).TotalSeconds;
+        }
+    }
+
+    private bool RemeshCore(string reason)
     {
         var sw = Stopwatch.StartNew();
         var oldT = _t;
@@ -1611,11 +1807,11 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         var stuffed = (Vec3[])x.Clone();
         var contact = new NodeContact[mesh.NodeCount];
         var newNrm = SurfaceNormals(mesh, x);
-        double tolC = 0.12 * _h;
+        var hLoc = LocalLengths(mesh, x);
         for (int n = 0; n < mesh.NodeCount; n++)
         {
             if (!mesh.IsSurfaceNode[n]) continue;
-            double cb = _die.Bottom.Clearance(x[n], 0), ctp = _die.TopClosed.Clearance(x[n], _gap);
+            double cb = _die.Bottom.Clearance(x[n], 0), ctp = _die.TopClosed.Clearance(x[n], _gap), tolC = 0.12 * Tol(hLoc[n]);
             if (cb < tolC && cb <= ctp) contact[n] = NodeContact.BottomDie;
             else if (ctp < tolC) contact[n] = NodeContact.TopDie;
             if (contact[n] != NodeContact.Free)
@@ -1628,7 +1824,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
 
         CompensateVolume(mesh, x, contact);
-        ImprovePlacement(mesh, x, contact, stuffed, newNrm, _gap, 0.1);
+        ImprovePlacement(mesh, x, contact, stuffed, newNrm, _gap, 0.1, hLoc);
 
         // In very thin sections (flash one tet thick) projecting onto both dies can flatten or invert a tet: put the
         // nodes of such tets back at their stuffed positions (on the old surface) and let contact pick them up again.
@@ -1644,7 +1840,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
                     int n = tt[4 * e + a];
                     if (x[n] == stuffed[n]) continue;
                     // Never put a node back inside a die (corner-cutting chords of the old surface).
-                    if (Math.Min(_die.Bottom.Clearance(stuffed[n], 0), _die.TopClosed.Clearance(stuffed[n], _gap)) < -0.05 * _h) continue;
+                    if (Math.Min(_die.Bottom.Clearance(stuffed[n], 0), _die.TopClosed.Clearance(stuffed[n], _gap)) < -0.05 * Tol(hLoc[n])) continue;
                     x[n] = stuffed[n];
                     contact[n] = NodeContact.Free;
                     reverted++;

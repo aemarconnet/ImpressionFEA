@@ -30,9 +30,9 @@ public sealed partial class MainViewModel
 
     public double BilletLengthU { get => U.L(_billetLength); set => BilletLength = U.LToMm(value); }
 
-    public double ElementSizeU { get => U.L(_elementSize); set => ElementSize = U.LToMm(value); }
+    public double ElementSizeU { get => U.L(_elementSize); set => OverrideMesh(ref _elementSizeAuto, nameof(ElementSizeIsAuto), () => ElementSize = U.LToMm(value)); }
 
-    public double StrokeIncrementU { get => U.L(_strokeIncrement); set => StrokeIncrement = U.LToMm(value); }
+    public double StrokeIncrementU { get => U.L(_strokeIncrement); set => OverrideMesh(ref _strokeIncrementAuto, nameof(StrokeIncrementIsAuto), () => StrokeIncrement = U.LToMm(value)); }
 
     public double RamSpeedU { get => U.L(_ramSpeed); set => RamSpeed = U.LToMm(value); }
 

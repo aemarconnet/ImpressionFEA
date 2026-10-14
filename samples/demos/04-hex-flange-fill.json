@@ -15,8 +15,6 @@
     "material": "AISI 4140",
     "temperature": 1150,
     "friction": 0.3,
-    "elementSize": 3,
-    "strokeIncrement": 0.5,
     "ramSpeed": 50,
     "pressCapacity": 200
   },
