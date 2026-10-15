@@ -205,6 +205,35 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             : double.PositiveInfinity;
     }
 
+    /// <summary>Known accuracy limit of the finished run (see <see cref="FlashResolutionWarning"/>), or null.</summary>
+    public string? AccuracyWarning { get; private set; }
+
+    /// <summary>Elements through the thinnest die-held layer below which flash pressure and load are understated.</summary>
+    public const double MinElementsThroughFlash = 0.9;
+
+    /// <summary>
+    /// At die closure: the thinnest layer held between the dies (normally the flash) against the local element size
+    /// there. With less than about one element through it the shear flow in the flash is not resolved, and the flash
+    /// pressure (most of the closing load) comes out low — by up to a third or more in the mesh studies.
+    /// </summary>
+    private string? FlashResolutionWarning()
+    {
+        double thinnest = double.PositiveInfinity, local = _h;
+        for (int n = 0; n < _nn; n++)
+        {
+            if (_contact[n] != NodeContact.TopDie) continue;
+            double zb = _die.Bottom.SurfaceZ(_x[n].X, _x[n].Y), zt = _die.TopClosed.SurfaceZ(_x[n].X, _x[n].Y) + _gap;
+            if (double.IsFinite(zb) && double.IsFinite(zt) && zt > zb && zt - zb < thinnest)
+            {
+                thinnest = zt - zb;
+                local = _hLocal[n];
+            }
+        }
+
+        if (!double.IsFinite(thinnest) || thinnest / local >= MinElementsThroughFlash) return null;
+        return F($"Accuracy: the thinnest flash is {thinnest:F2} mm thick but the elements there are about {local:F2} mm, fewer than one through the thickness, so the flash pressure and the load are likely understated. Use the Accurate mesh quality or a smaller element size.");
+    }
+
     /// <summary>Places where an increment failed; later remeshes refine around them (die corners are fixed in space).</summary>
     private readonly List<(Vec3 At, int Level)> _hotSpots = [];
 
@@ -490,7 +519,11 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         var snap = MakeSnapshot(StepIndex, load, iterations);
         _log(F($"step {StepIndex,4} | stroke {snap.Stroke,8:F3} mm | it {iterations,2} | load {load / 9806.65,9:F2} t (reaction {reaction / 9806.65:F2} t) | fill {snap.FillPercent,6:F2} % | ΔV {snap.VolumeChangePercent,6:F3} % | {_ne} tets | {sw.Elapsed.TotalMilliseconds,7:F0} ms"));
         _tTotal += sw.Elapsed.TotalSeconds;
-        if (IsFinished) _log(TimingSummary);
+        if (IsFinished)
+        {
+            AccuracyWarning = FlashResolutionWarning();
+            _log(TimingSummary);
+        }
         return snap;
     }
 
@@ -1895,7 +1928,10 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         return true;
     }
 
-    /// <summary>Moves free-surface nodes along their normals to restore the initial volume (≤ 0.25·h per remesh).</summary>
+    /// <summary>Largest normal shift of the free surface per remesh, × h (static so a study can vary it).</summary>
+    public static double MaxCompensation { get; set; } = 1.0;
+
+    /// <summary>Moves free-surface nodes along their normals to restore the initial volume (≤ MaxCompensation·h per remesh).</summary>
     private void CompensateVolume(TetMesh mesh, Vec3[] x, NodeContact[] contact)
     {
         double vol = 0;
@@ -1926,7 +1962,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
 
         if (rate <= 0) return;
-        double shift = Math.Clamp(deficit / rate, -0.25 * _h, 0.25 * _h);
+        double shift = Math.Clamp(deficit / rate, -MaxCompensation * _h, MaxCompensation * _h);
         for (int n = 0; n < mesh.NodeCount; n++)
         {
             if (normals[n] == default) continue;

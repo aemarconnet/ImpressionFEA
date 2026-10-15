@@ -28,6 +28,9 @@ public interface IForgingStepper
     ForgingSnapshot Initial();
 
     ForgingSnapshot Step(CancellationToken ct);
+
+    /// <summary>Known accuracy limit of a finished run (e.g. a flash thinner than one element), or null.</summary>
+    string? AccuracyWarning => null;
 }
 
 public sealed record EngineProbe(bool Available, string Detail);
@@ -122,8 +125,10 @@ public sealed class NativeFemEngine : ISimulationEngine
                 observer.OnStep(snap);
             }
 
+            if (solver.AccuracyWarning is { } warn) observer.OnLog("WARNING: " + warn);
             return Finish(SimulationStatus.Completed,
-                $"Dies closed: {snapshots.Count - 1} increments in {sw.Elapsed.TotalSeconds:F2} s. Peak load {snapshots.Max(s => s.LoadTonnes):F2} t, final fill {snapshots[^1].FillPercent:F2} %.");
+                $"Dies closed: {snapshots.Count - 1} increments in {sw.Elapsed.TotalSeconds:F2} s. Peak load {snapshots.Max(s => s.LoadTonnes):F2} t, final fill {snapshots[^1].FillPercent:F2} %."
+                + (solver.AccuracyWarning is { } w ? " " + w : ""));
         }
         catch (OperationCanceledException)
         {

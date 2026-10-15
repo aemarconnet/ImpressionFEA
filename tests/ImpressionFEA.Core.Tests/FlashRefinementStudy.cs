@@ -34,6 +34,40 @@ public class FlashRefinementStudy(ITestOutputHelper output)
         return data;
     }
 
+    /// <summary>Where volume is lost: ΔV after every increment, with the remeshes in between (hex bolt head, given target nodes).</summary>
+    [Theory]
+    [Trait("Category", "Study")]
+    [InlineData(1.6, 4000)]
+    [InlineData(1.6, 8000)]
+    [InlineData(0.8, 8000)]
+    public void VolumeTrace(double flash, int targetNodes)
+    {
+        if (Environment.GetEnvironmentVariable("IFEA_STUDY") is null) return;
+        if (Environment.GetEnvironmentVariable("IFEA_MAXCOMP") is { } mc) Forging3DSolver.MaxCompensation = double.Parse(mc, CultureInfo.InvariantCulture);
+        var sw = Stopwatch.StartNew();
+        var die = DiePresets3D.HexBoltHead(flashThickness: flash);
+        var (r0, dim) = die.RecommendedBillet();
+        var cfg0 = new SimulationConfig3D { Die = die, Material = MaterialPresets.Steel4140, Temperature = 1150, BilletRadius = r0, BilletDimension = dim, FrictionFactor = 0.3, RamSpeed = 50 };
+        double h = cfg0.CalibratedAutoElementSize(targetNodes);
+        var cfg = cfg0 with { ElementSize = h, StrokeIncrement = SimulationConfig3D.AutoStrokeIncrement(h) };
+        var pending = new List<string>();
+        using var solver = new Forging3DSolver(cfg, l =>
+        {
+            if (l.Contains("REMESH #", StringComparison.Ordinal) || l.Contains("rejected", StringComparison.Ordinal)) pending.Add(l.Trim());
+        });
+        ForgingSnapshot s = solver.Initial();
+        double prev = 0;
+        while (!solver.IsFinished)
+        {
+            s = solver.Step(CancellationToken.None);
+            string rem = pending.Count > 0 ? " | " + string.Join(" ; ", pending.Select(p => p.Length > 60 ? p[..60] : p)) : "";
+            output.WriteLine(FormattableString.Invariant($"VOL | step {s.Step,3} gap {s.DieGap,6:F2} mm | ΔV {s.VolumeChangePercent,7:F3} % | jump {s.VolumeChangePercent - prev,7:F3} %{rem}"));
+            prev = s.VolumeChangePercent;
+            pending.Clear();
+        }
+        output.WriteLine(FormattableString.Invariant($"VOLSUM | max compensation {Forging3DSolver.MaxCompensation} h | final ΔV {s.VolumeChangePercent:F2} % | load {s.LoadNewton / 9806.65:F1} t | fill {s.FillPercent:F1} % | {sw.Elapsed.TotalMinutes:F2} min | flash {flash} mm, {targetNodes} nodes | {solver.AccuracyWarning ?? "no accuracy warning"}"));
+    }
+
     /// <summary>Where the time goes: Balanced hex bolt head (1.6 mm flash) per linear-solver backend.</summary>
     [Theory]
     [Trait("Category", "Study")]

@@ -40,6 +40,12 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 - **Mesh quality** (Advanced ▸ Mesh quality 3D): Fast (about 4,000 nodes), Balanced (8,000, default) or Accurate
   (20,000, node budget 40,000) for your own parts when run time matters less; remembered between sessions. A 3D run
   that changes the workpiece volume by more than 3 % ends with a coarse-mesh warning.
+- **Volume conserved on remeshing**: the free surface (in the end the flash rim) may now move up to one element per
+  remesh to restore the lost volume, instead of a quarter: the coarse hex bolt head now ends within about 1 % instead of
+  −6 %. Volume was not what made coarse meshes low on load, though:
+- **Flash-resolution check**: when the dies close with less than about one element through the thinnest flash, the run
+  ends with an accuracy note (the flash pressure, and so the load, is likely understated) and a suggestion to use the
+  Accurate mesh quality or a smaller element size.
 - **Handbook load estimate** (Core): the simplified slab method of Altan, Ngaile & Shen (Eqs 14.8–14.11, with the
   sliding and disk-shearing cavity modes of Table 15.1), with benchmark tests against the book's worked examples.
 - Crash log moved to `%LOCALAPPDATA%\ImpressionFEA`; your own and edited demos go in `Documents\ImpressionFEA\demos`
