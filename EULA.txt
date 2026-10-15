@@ -1,0 +1,355 @@
+﻿END USER LICENSE AGREEMENT (EULA)
+
+ImpressionFEA – Closed-Die Impression Forging Simulator
+
+Software: ImpressionFEA, including the Windows application, its
+installers and portable packages, the SOLIDWORKS add-in, samples,
+demos, documentation, and any updates (collectively, the "Software").
+
+Licensor: Marconnet Technologies LLC
+
+Contact: Marconnet.Tech · www.marconnet.tech/contact-us
+
+EULA version: 1.0, effective 10/15/2026
+
+Copyright: © 2026 Marconnet Technologies LLC. All rights reserved.
+
+ImpressionFEA is free for Personal Use and Educational Use. Commercial
+Use requires a Commercial License. ImpressionFEA is an educational
+and conceptual tool: because its modeling assumptions are substantial,
+it is NOT intended for professional engineering use (Section 3).
+
+By downloading, installing, or otherwise using the Software, you (the
+"User") agree to be bound by this End User License Agreement (the
+"Agreement"). If you do not agree, do not install or use the Software.
+
+SECTION 1 – DEFINITIONS
+
+1.1 "Personal Use" means use by an individual for non-commercial
+purposes, such as personal learning, hobby projects, and exploring
+forging for your own interest, without payment.
+
+1.2 "Educational Use" means use by students, instructors, and
+accredited schools, colleges, and universities for teaching,
+coursework, and non-commercial academic research whose results are
+published openly and are not delivered to a business.
+
+1.3 "Commercial Use" means any use that is not Personal Use or
+Educational Use, including:
+
+(a) use by or on behalf of a business, government body, or other
+organization, including use by its employees or contractors in the
+course of their work, internal training, and demonstrations;
+
+(b) studying or comparing dies, preforms, billets, forging processes,
+or presses for products, parts, or tooling of a business;
+
+(c) consulting, contract work, contract research, or any other paid
+service, and research funded by or delivered to a business;
+
+(d) Output delivered to a customer or used in a business decision;
+
+(e) training courses or seminars offered for a fee.
+
+1.4 "Professional Engineering Use" means using the Software or any
+Output as a basis for final design, engineering sign-off or approval,
+die or press rating, process qualification, certification, quotations
+or guarantees to customers, or any decision where an error could
+cause injury, damage, or financial loss.
+
+1.5 "Output" means anything you create by using the Software,
+including setups, meshes, simulation results, telemetry, reports,
+images, videos, and exported geometry or data.
+
+1.6 "Third-Party Components" means software supplied with the
+Software under its own license, as listed in NOTICE.md and in the
+licenses folder. They include the NVIDIA cuDSS, CUDA runtime, and
+cuBLAS libraries; the Intel oneMKL, OpenMP, and TBB libraries; Open
+CASCADE Technology; and CSparse.NET.
+
+1.7 "Commercial Licensee" means the single company, organization,
+or sole proprietor that paid for a Commercial License, as named
+on the invoice. "Authorized Users" means the Commercial Licensee's
+employees and individual contractors who use the Software only on
+the Commercial Licensee's behalf, up to the number of users or sites
+stated on the invoice.
+
+SECTION 2 – GRANT OF LICENSE
+
+2.1 Free License. Marconnet Technologies LLC grants the User a free,
+non-exclusive, non-transferable license to install and use the
+Software on devices the User owns or controls, for Personal Use and
+Educational Use only. You may keep and use Output for Personal Use
+and Educational Use.
+
+2.2 Evaluation. A business or other organization may install and use
+the Software for up to 30 days solely to evaluate whether to buy a
+Commercial License. No Output made during evaluation may be used in
+production, in a quotation, or in a business decision, or be delivered
+to a customer.
+
+2.3 Commercial License. Upon payment of the applicable license
+fee, Marconnet Technologies LLC grants the Commercial Licensee a
+non-exclusive, non-transferable license for its Authorized Users to
+install and use the Software for Commercial Use, on devices owned
+or controlled by the Commercial Licensee, for the term stated on
+the invoice. The Commercial Licensee may use Output in its business
+and share it with its customers, subject to Section 2.5, Section 3,
+and Section 5(c). The Commercial Licensee is responsible for its
+Authorized Users' compliance with this Agreement.
+
+2.4 Open-source license. The source code of ImpressionFEA is published
+at github.com/aemarconnet/ImpressionFEA under the Creative Commons
+Attribution-NonCommercial 4.0 International License (the LICENSE
+file). Nothing in this Agreement limits the rights that license grants
+for ImpressionFEA's own code and content; for those, this Agreement
+adds terms but takes none away. Third-Party Components are not covered
+by that license (Section 7).
+
+2.5 Attribution.
+
+(a) Free license. When you publish or present Output made under
+the free license, for example in a paper, thesis, poster, report,
+course material, web page, or video, you must credit the Software,
+for example: "Simulated with ImpressionFEA (Marconnet Technologies
+LLC), www.marconnet.tech/projects/impressionfea".
+
+(b) Commercial License. No credit is required for use within the
+Commercial Licensee's business. Output shared outside the Commercial
+Licensee must identify ImpressionFEA as its source and state that
+it consists of preliminary estimates (Section 5(c)). The reports
+the Software prints do both; keep their footer and statement of
+assumptions.
+
+(c) The Software itself. Sharing or adapting the Software under the
+license in Section 2.4 requires the attribution that license and
+NOTICE.md describe.
+
+SECTION 3 – INTENDED USE: NOT FOR PROFESSIONAL ENGINEERING USE
+
+3.1 ImpressionFEA is an educational and conceptual tool. It is intended
+for teaching and learning closed-die forging, for demonstrations,
+and for early, qualitative exploration of trends, such as how flash
+thickness, temperature, friction, or ram speed affect die fill and
+press load.
+
+3.2 The Software rests on substantial simplifying assumptions. It
+assumes isothermal forming (no die chilling and no heat generated by
+deformation or friction), a rigid-viscoplastic material (no elasticity,
+springback, or residual stress), rigid dies (no deflection, wear, or
+temperature change), constant shear friction, and quasi-static forming
+at constant ram speed. Material data are representative or fitted to
+published tables and are not certified. Results depend on the element
+size and other settings. The mesh check, warnings, and benchmark
+comparisons the Software provides are aids, not guarantees. Press
+loads, die fill, stresses, strains, damage, defects, and other results
+can differ substantially from those of a real forging.
+
+3.3 For these reasons the Software is NOT intended for Professional
+Engineering Use, and it is not licensed, validated, or warranted for
+it, under either the free license or a Commercial License. A Commercial
+License permits commercial use of the Software; it does not make the
+Software suitable for Professional Engineering Use. If you nevertheless
+use the Software or any Output in professional engineering work, you
+do so entirely at your own risk, and you must verify every result
+independently by qualified engineering methods, such as validated
+analysis, die stress analysis, press and die manufacturer ratings,
+and physical trials.
+
+3.4 You are solely responsible for every die design, billet, process,
+press capacity, and safety factor you use, and for complying with all
+applicable codes and standards. Forging presses, hammers, and heated
+dies carry a serious risk of injury; follow all safety practices for
+your equipment.
+
+SECTION 4 – COMMERCIAL USE REQUIRES A COMMERCIAL LICENSE
+
+Commercial Use of the Software or of any Output is not permitted under
+the free license, except for the evaluation in Section 2.2. Commercial
+Licenses, including licenses for multiple users or sites, are available
+from Marconnet Technologies LLC (Section 15).
+
+SECTION 5 – PROHIBITED USES
+
+The User may NOT:
+
+(a) Use commercially without a license. Make Commercial Use of the
+Software or of any Output without a Commercial License, except for
+evaluation under Section 2.2.
+
+(b) Sell or rent the Software. Sell, rent, lease, or sublicense
+the Software, offer it as a hosted or online service to others, or
+charge for copies of it, without written permission from Marconnet
+Technologies LLC.
+
+(c) Misrepresent results. Present Output as a professional engineering
+analysis, as certified, as validated for a particular application, or
+as approved or produced by Marconnet Technologies LLC; or give Output
+to others without identifying ImpressionFEA as its source and stating
+that it consists of preliminary estimates from a simplified educational
+model. Remove or alter the statement of modeling assumptions that
+the Software prints on its reports.
+
+(d) Remove notices. Remove or change any copyright, license,
+attribution, name, or version information in the Software.
+
+(e) Misuse the names. Use the names "ImpressionFEA" or "Marconnet
+Technologies" to name a modified version of the Software or to imply
+endorsement. A modified version must be clearly marked as modified.
+
+(f) Misuse Third-Party Components. Use any Third-Party Component
+separately from the Software; reverse engineer, decompile, or
+disassemble any NVIDIA or Intel component; or distribute any
+Third-Party Component except as part of a complete, unmodified
+copy of a Software package together with this Agreement, LICENSE,
+and NOTICE.md.
+
+You may make backup copies for your own use, provided each copy keeps
+all notices. Under the free license you may share complete, unmodified
+copies of the Software packages free of charge for Personal Use and
+Educational Use, provided this Agreement, LICENSE, and NOTICE.md go
+with them.
+
+SECTION 6 – INTELLECTUAL PROPERTY
+
+The Software is licensed, not sold. Except for the Third-Party
+Components, the Software is the intellectual property of Marconnet
+Technologies LLC and is protected by copyright and other intellectual
+property laws. All rights not expressly granted are reserved.
+
+You keep all rights in your own models, setups, and Output. Marconnet
+Technologies LLC claims no ownership of them.
+
+"ImpressionFEA" and "Marconnet Technologies" are names of the
+Licensor. This Agreement grants no right to use them except to identify
+the Software accurately.
+
+SECTION 7 – THIRD-PARTY COMPONENTS AND TRADEMARKS
+
+Third-Party Components are licensed by their owners under their own
+terms, listed in NOTICE.md and included in the licenses folder. Those
+terms govern the Third-Party Components, and you agree to them. The
+NVIDIA components may be accessed only by the Software. The optional
+GPU solver download fetches NVIDIA components from NVIDIA's servers
+under NVIDIA's terms.
+
+The SOLIDWORKS add-in requires your own licensed copy of
+SOLIDWORKS. This Agreement grants no rights to SOLIDWORKS or any
+other third-party product.
+
+SOLIDWORKS is a registered trademark of Dassault Systèmes
+SolidWorks Corporation. NVIDIA, CUDA, and cuDSS are trademarks
+of NVIDIA Corporation. Intel and oneMKL are trademarks of Intel
+Corporation. Windows is a trademark of Microsoft Corporation. Other
+names are trademarks of their respective owners. Marconnet Technologies
+LLC is not affiliated with, sponsored by, or endorsed by these
+companies.
+
+SECTION 8 – DISCLAIMER OF WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, ACCURACY OF RESULTS, AND
+NON-INFRINGEMENT. MARCONNET TECHNOLOGIES LLC DOES NOT WARRANT THAT
+THE SOFTWARE WILL BE ERROR-FREE, THAT ANY SIMULATION WILL COMPLETE
+OR CONVERGE, OR THAT ANY RESULT WILL MATCH A REAL FORGING.
+
+Marconnet Technologies LLC does not warrant that the Software will
+import any particular CAD file, work with any particular version
+of SOLIDWORKS, Windows, or graphics hardware, or produce the same
+results on different computers or solver back-ends.
+
+SECTION 9 – LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, MARCONNET TECHNOLOGIES LLC
+SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+CONSEQUENTIAL, OR PUNITIVE DAMAGES RESULTING FROM USE OF THE SOFTWARE
+OR ANY OUTPUT, including:
+
+(a) broken, cracked, or worn dies and tooling;
+
+(b) press overload or damage to presses, hammers, or other equipment;
+
+(c) scrapped, defective, or underfilled forgings and wasted material;
+
+(d) loss of profits, production time, or business, and business
+interruption;
+
+(e) decisions made on the basis of inaccurate or incomplete results,
+including any Professional Engineering Use;
+
+(f) loss or corruption of data.
+
+Under the free license, because the Software is free, the Licensor's
+total liability shall not exceed US $1. Under a Commercial License,
+the Licensor's total liability shall not exceed the license fees the
+Commercial Licensee paid in the twelve months before the claim.
+
+Some jurisdictions do not allow certain warranty exclusions or
+liability limits, so some of the above may not apply to you.
+
+SECTION 10 – PRIVACY
+
+The Software runs on your computer. It does not require an account,
+does not collect usage data, and does not send your models, setups,
+or results to Marconnet Technologies LLC. Settings, logs, and crash
+reports are stored on your computer only. The optional GPU solver
+download contacts NVIDIA's servers.
+
+SECTION 11 – UPDATES
+
+The Licensor may release updated versions of the Software. Updates
+are governed by this Agreement unless they come with a different
+agreement. The version of this Agreement supplied with a copy of the
+Software governs that copy.
+
+SECTION 12 – TERMINATION
+
+This license ends automatically if you breach any term of this
+Agreement. On termination you must stop using the Software and
+delete all copies. Output lawfully made before termination may
+be kept and used under the license that applied when it was made;
+Output a Commercial Licensee lawfully delivered to its customers
+before termination may continue to be used by them. Section 2.5,
+Section 3, Sections 5 through 10, and Section 14 survive termination.
+
+SECTION 13 – EXPORT
+
+The Software, including its Third-Party Components, may be subject
+to United States and other export control and sanctions laws. You
+agree to comply with them and not to export, re-export, or use the
+Software in violation of them.
+
+SECTION 14 – GENERAL
+
+Governing law. This Agreement is governed by the laws of the State of
+Pennsylvania, without regard to conflict-of-law rules. Any dispute
+shall be brought in the state or federal courts located in Lycoming
+County, Pennsylvania.
+
+Entire agreement. This Agreement, together with any invoice and any
+signed written license from Marconnet Technologies LLC, is the entire
+agreement between the parties about the Software. If they conflict,
+a signed written license from Marconnet Technologies LLC controls.
+
+Severability. If any provision is found unenforceable, it will be
+enforced to the greatest extent permitted, and the remaining provisions
+stay in effect.
+
+No waiver. Failure to enforce any provision is not a waiver of it.
+
+Assignment. The User may not assign or transfer this Agreement or
+the license without the Licensor's written consent, except that a
+Commercial Licensee may transfer it to a successor that acquires
+substantially all of its business and agrees to this Agreement. The
+Licensor may assign this Agreement.
+
+SECTION 15 – CONTACT
+
+Marconnet Technologies LLC
+
+Marconnet.Tech · www.marconnet.tech/contact-us
+
+ImpressionFEA: www.marconnet.tech/projects/impressionfea
+
+© 2026 Marconnet Technologies LLC. All rights reserved.

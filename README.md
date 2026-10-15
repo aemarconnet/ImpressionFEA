@@ -2,13 +2,14 @@
 
 # ImpressionFEA — Closed-Die Impression Forging Simulator
 
-**by Marconnet Technologies LLC** · [CC BY-NC 4.0](LICENSE) · see [NOTICE.md](NOTICE.md) for attribution and third-party licenses
+**by Marconnet Technologies LLC** · [EULA](EULA.txt) · source [CC BY-NC 4.0](LICENSE) · see [NOTICE.md](NOTICE.md) for attribution and third-party licenses
 
 Windows desktop application (WPF, .NET 10) for closed-die impression forging simulation with built-in native
 finite-element solvers: a fast **2D** solver (axisymmetric / plane strain) and a full **3D** solver (tetrahedra) with
 GPU (NVIDIA cuDSS) or multithreaded CPU (Intel MKL) acceleration. No external solver is needed. 3D jobs can come
 from the built-in die presets, from a **STEP assembly of three bodies** (bottom die, workpiece, top die), or from a
-**STEP file of the two dies only** with a workpiece you define in the app.
+**STEP file of the two dies only** with a workpiece you define in the app. It is an educational and conceptual tool,
+free for personal and educational use; commercial use requires a license (see [License](#license)).
 
 ## Download
 
@@ -40,8 +41,13 @@ Every report repeats these at the top:
 * **Quasi-static** forming at constant ram speed: inertia and gravity are neglected.
 * Material data are fitted to published hot-flow tables (Altan, Ngaile & Shen, *Cold and Hot Forging*, ASM 2005,
   Tables 4.7–4.9) where the grade or a close grade is listed, otherwise representative values; each material states
-  its source. Load and fill are engineering estimates for design comparison,
-  not certified predictions.
+  its source.
+
+ImpressionFEA is an **educational and conceptual tool**: for teaching and learning closed-die forging, demonstrations
+and early, qualitative exploration of trends. Load, fill and the other results are preliminary estimates from a
+simplified model, not certified predictions. Because the assumptions above are substantial, it is **not intended for
+professional engineering use** such as final design, sign-off, die or press rating or process qualification (see the
+[EULA](EULA.txt), Section 3).
 
 ## Flash design of the built-in dies
 
@@ -361,10 +367,24 @@ The release number is `<Version>` in `Directory.Build.props`. It appears in the 
 
 ## License
 
-ImpressionFEA © 2026 **Marconnet Technologies LLC**, licensed under the
-[Creative Commons Attribution-NonCommercial 4.0 International License](https://creativecommons.org/licenses/by-nc/4.0/).
-You may share and adapt it for non-commercial purposes, provided you credit Marconnet Technologies LLC. Commercial
-use requires written permission. Third-party libraries keep their own licenses ([NOTICE.md](NOTICE.md)).
+ImpressionFEA © 2026 **Marconnet Technologies LLC**.
+
+* **Use** of the application is governed by the [End User License Agreement](EULA.txt), which the installer asks you
+  to accept.
+  * Personal and educational use is free: personal learning and hobby projects, and teaching, coursework and openly
+    published academic research.
+  * Commercial use requires a Commercial License from Marconnet Technologies LLC; a 30-day evaluation is allowed.
+  * ImpressionFEA is an educational and conceptual tool. It is not intended for professional engineering use under
+    either licence.
+  * Attribution: credit ImpressionFEA when you publish or present results made under the free licence (for example
+    *"Simulated with ImpressionFEA (Marconnet Technologies LLC)"*). Commercial results shared outside the licensee
+    keep the report's ImpressionFEA identification and its "preliminary estimates" statement. See
+    [NOTICE.md](NOTICE.md) for the wording.
+  * The EULA also covers warranty and liability, privacy, and the bundled NVIDIA and Intel libraries.
+* **Source code** is licensed under the
+  [Creative Commons Attribution-NonCommercial 4.0 International License](https://creativecommons.org/licenses/by-nc/4.0/).
+  You may share and adapt it for non-commercial purposes, provided you credit Marconnet Technologies LLC.
+* **Third-party libraries** keep their own licenses ([NOTICE.md](NOTICE.md)).
 
 ## Threading and error handling
 
@@ -389,8 +409,9 @@ are limited by the node budget (12 k by default, adjustable under Advanced). Sha
 small, bounded corner penetrations; fillets on the dies give cleaner results. When a wide flash gets thinner than
 about one element (h) in the last millimetres of the stroke, the 3D solution loses volume (several % in the sample
 hex flange); a finer mesh or thin-flash refinement (Advanced) reduces it at the cost of run time. The built-in dies
-avoid very thin flash (see *Flash design of the built-in dies*). Load and fill are engineering estimates, not
-certified predictions.
+avoid very thin flash (see *Flash design of the built-in dies*). Load and fill are preliminary estimates, not
+certified predictions: ImpressionFEA is an educational and conceptual tool, not intended for professional engineering
+use.
 
 ## Headless capture
 

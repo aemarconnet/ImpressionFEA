@@ -22,7 +22,17 @@ function Build-Package([bool]$gpu) {
     $name = "ImpressionFEA-$Version-win-x64-$(if ($gpu) { 'full' } else { 'light' })"
     $out = Join-Path $artifacts $name
     $zip = Join-Path $artifacts "$name.zip"
-    if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+    if (Test-Path $out) {
+        # Refuse to start while anything in the old package is in use (ImpressionFEA running from it, or SOLIDWORKS with
+        # the add-in registered from it): a partial delete would leave a broken package, and a broken CAD loop, behind.
+        $locked = @(Get-ChildItem $out -Recurse -File | Where-Object {
+                try { [IO.File]::Open($_.FullName, 'Open', 'ReadWrite', 'None').Dispose(); $false } catch { $true }
+            } | Select-Object -First 3)
+        if ($locked.Count -gt 0) {
+            throw "Files in $out are in use; nothing was deleted. Close ImpressionFEA if it runs from this folder, and unload the ImpressionFEA add-in in SOLIDWORKS (Tools > Add-Ins) if it was registered from it: $($locked.FullName -join ', ')"
+        }
+        Remove-Item -Recurse -Force $out
+    }
     if (Test-Path $zip) { Remove-Item -Force $zip }
     if ($gpu) {
         foreach ($f in $cudaDlls) { if (-not (Test-Path (Join-Path $root "native\cuda\$f"))) { throw "native\cuda\$f is missing: run native/fetch-cuda.ps1 first." } }
@@ -45,7 +55,7 @@ function Build-Package([bool]$gpu) {
     Get-ChildItem (Join-Path $out 'samples') -File | Where-Object { $_.Name -notlike 'sample_*' } | Remove-Item
 
     # Licences: ImpressionFEA, OCCT + third-party runtimes, NVIDIA, Intel MKL / OpenMP / TBB.
-    Copy-Item LICENSE, NOTICE.md, CHANGELOG.md $out
+    Copy-Item EULA.txt, LICENSE, NOTICE.md, CHANGELOG.md $out
     $lic = New-Item -ItemType Directory -Force (Join-Path $out 'licenses')
     Copy-Item native\licenses\* $lic -Recurse -Force
     $nuget = (dotnet nuget locals global-packages -l) -replace '^global-packages:\s*', ''
@@ -81,7 +91,9 @@ function Build-Package([bool]$gpu) {
 
     Set-Content -Encoding UTF8 (Join-Path $out 'README.txt') @"
 ImpressionFEA $Version ($(if ($gpu) { 'full: GPU + CPU' } else { 'light: CPU only' })) - closed-die impression forging simulator (Windows x64)
-Copyright (c) 2026 Marconnet Technologies LLC. Licensed under CC BY-NC 4.0 (see LICENSE and NOTICE.md).
+Copyright (c) 2026 Marconnet Technologies LLC. Use is governed by EULA.txt: free for personal and educational use;
+commercial use requires a Commercial License. An educational and conceptual tool, not intended for professional
+engineering use. Source code under CC BY-NC 4.0 (LICENSE); third-party notices in NOTICE.md.
 https://github.com/aemarconnet/ImpressionFEA
 
 Start:      ImpressionFEA.App.exe   (no installation or .NET runtime needed)

@@ -5,17 +5,28 @@
 This work is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License
 ([CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)); the full legal text is in `LICENSE`.
 Any use, copy, adaptation or redistribution must credit "Marconnet Technologies LLC" as the original author, link
-to the license, and indicate if changes were made.
+to the license, and indicate if changes were made. Use of the application is also governed by the End User License
+Agreement in `EULA.txt` (free for personal and educational use; commercial use requires a Commercial License;
+not intended for professional engineering use).
 
 ## Required attribution
 
-When you use, share or adapt ImpressionFEA, credit it like this:
+**Sharing or adapting the software** (CC BY-NC 4.0): credit it like this:
 
 > ImpressionFEA by Marconnet Technologies LLC, licensed under CC BY-NC 4.0
 > (https://creativecommons.org/licenses/by-nc/4.0/). Changes were made: *(describe, if any)*.
 
-Commercial use (selling the software or services built on it, or using it in paid work) requires prior written
-permission from Marconnet Technologies LLC.
+**Publishing or presenting results** made under the free licence (personal and educational use), in a paper, thesis,
+poster, report, course material, web page or video: credit them like this (EULA Section 2.5):
+
+> Simulated with ImpressionFEA (Marconnet Technologies LLC), www.marconnet.tech/projects/impressionfea
+
+**Commercial Licensees** need no credit for use within their business. Results shared outside it must identify
+ImpressionFEA as their source and state that they are preliminary estimates. The app's reports do both in their footer
+and statement of assumptions.
+
+Commercial use (in or for a business, in paid work, or selling the software or services built on it) requires a
+Commercial License from Marconnet Technologies LLC (`EULA.txt`).
 
 ## Third-party components
 

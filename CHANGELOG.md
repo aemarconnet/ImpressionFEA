@@ -4,6 +4,13 @@ The release number lives in `Directory.Build.props` (`<Version>`) and is shown i
 the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 
 ## 0.9.0
+- **End User License Agreement** (`EULA.txt`): free for personal and educational use; commercial use requires a
+  Commercial License (30-day evaluation allowed). ImpressionFEA is an educational and conceptual tool, not intended
+  for professional engineering use, because its modeling assumptions are substantial. The EULA also covers warranty and
+  liability, privacy (nothing is sent anywhere) and the bundled NVIDIA and Intel libraries. The installer asks you to
+  accept it; the source code stays under CC BY-NC 4.0. Reports now state that results are preliminary estimates from a
+  simplified model, not for professional engineering use. Results published under the free licence credit ImpressionFEA;
+  commercial results shared outside the licensee keep the report's ImpressionFEA identification.
 - **Windows installer** (`…-win-x64-full-setup.exe` / `…-light-setup.exe`, next to the zip packages): installs to
   Program Files with a Start Menu entry (desktop shortcut optional) and an uninstaller. The optional **SOLIDWORKS
   add-in** (ticked when SOLIDWORKS is found) is registered by the installer itself, machine-wide, without PowerShell;
