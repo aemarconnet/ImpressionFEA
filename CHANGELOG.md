@@ -54,8 +54,9 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 - **Reproducible results**: the choice between an iterative solve and a refactorisation no longer depends on timings,
   so on the CPU solver (MKL) the same setup gives the same answer however busy the computer is (it varied by 1–2 %
   before). GPU (cuDSS) factorisations are not bit-reproducible. Identical GPU runs of the hex bolt head differ by up
-  to about 1 %, and with the former 1.6 mm flash GPU and CPU differed by 4 %. *Auto* keeps whichever solver is faster
-  on the first factorisation, so choose the CPU solver (Advanced) when reruns must match exactly.
+  to about 1 %, and with the former 1.6 mm flash GPU and CPU differed by 4 %. *Auto* therefore keeps the CPU unless
+  the GPU is at least 1.5× faster on the first factorisation (it took the faster of the two before, which could change
+  from one run to the next). Choose the CPU solver under Advanced when reruns must match exactly on any computer.
 - **Closing load**: run summaries, the completion message and comparison reports show the load at die closure from a
   straight-line fit over the last millimetre of stroke. It scatters by about ±1 % between equivalent runs, against
   ±3 % for the single closure increment, so it is the figure to compare designs and meshes by.

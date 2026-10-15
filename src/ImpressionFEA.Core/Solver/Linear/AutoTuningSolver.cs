@@ -4,12 +4,17 @@ namespace ImpressionFEA.Core.Solver.Linear;
 
 /// <summary>
 /// Auto-selection by measurement: on the first factorisation of a run both the GPU (cuDSS) and the CPU (MKL PARDISO)
-/// backends factorise the actual system, the faster one is kept and the other released. FP64 throughput varies
-/// enormously between GPUs (workstation/consumer cards run double precision at 1/32–1/64 rate) and CPUs range from 4
-/// to 64+ cores, so measuring is the only reliable rule.
+/// backends factorise the actual system; one is kept and the other released. FP64 throughput varies enormously between
+/// GPUs (workstation/consumer cards run double precision at 1/32–1/64 rate) and CPUs range from 4 to 64+ cores, so
+/// measuring is the only reliable rule. The CPU is kept unless the GPU is clearly faster (<see cref="GpuAdvantage"/>):
+/// MKL results are bit-reproducible, cuDSS results are not (its parallel reductions vary from run to run, and contact and
+/// remeshing decisions near die closure amplify that to about 1 % in the load), and a close race would flip between runs.
 /// </summary>
 public sealed class AutoTuningSolver : ISpdSolver
 {
+    /// <summary>The GPU is chosen only when its factorisation is at least this many times faster than the CPU's.</summary>
+    public const double GpuAdvantage = 1.5;
+
     private readonly Action<string>? _log;
     private ISpdSolver? _gpu;
     private ISpdSolver? _cpu;
@@ -62,10 +67,11 @@ public sealed class AutoTuningSolver : ISpdSolver
         if (double.IsPositiveInfinity(tg) && double.IsPositiveInfinity(tc))
             throw new SolverDivergenceException("Neither the GPU nor the CPU sparse solver could factorise the system.");
 
-        bool gpuWins = tg < tc;
+        bool gpuWins = tg * GpuAdvantage < tc;
         _chosen = gpuWins ? _gpu : _cpu;
         (gpuWins ? _cpu : _gpu)!.Dispose();
-        _log?.Invoke(FormattableString.Invariant($"  auto-tune: GPU {tg:F0} ms vs CPU {tc:F0} ms per factorisation → {_chosen!.Name}"));
+        _log?.Invoke(FormattableString.Invariant($"  auto-tune: GPU {tg:F0} ms vs CPU {tc:F0} ms per factorisation → {_chosen!.Name}")
+            + (gpuWins || double.IsPositiveInfinity(tc) || double.IsPositiveInfinity(tg) ? "" : FormattableString.Invariant($" (the GPU must be {GpuAdvantage:0.#}× faster; the CPU gives reproducible results)")));
         _gpu = _cpu = null;
     }
 

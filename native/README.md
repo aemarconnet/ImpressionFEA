@@ -10,7 +10,9 @@ selected at run time (`Linear solver (3D)` in the UI, `SimulationConfig3D.Linear
 | **Managed** | CSparse.NET 4.4 | NuGet `CSparse` (LGPL-2.1) | Single-threaded; always available. |
 
 **Auto** (default) probes the GPU and MKL at start-up, then benchmarks both on the first real factorisation of each
-run and keeps the faster one. FP64 throughput differs enormously between GPUs: workstation and consumer cards run double
+run. It keeps the CPU unless the GPU is at least 1.5× faster, because MKL results are bit-reproducible and cuDSS results
+are not: its parallel reductions vary from run to run, and near die closure that grows to about 1 % in the load. FP64
+throughput differs enormously between GPUs: workstation and consumer cards run double
 precision at 1/32–1/64 rate, while A100/H100-class cards run it at 1/2. So measuring is the only reliable rule. If a
 library is missing or a device is absent, the app falls back silently to the next backend and says so in the log.
 

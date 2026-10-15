@@ -328,8 +328,9 @@ the finish time and, in a queue, the time for the remaining items.
   volume compensated.
 * **Linear algebra**: one sparse SPD factorisation per Newton iteration on a fixed pattern per mesh, plus
   preconditioned CG reuse of the last factor when that is cheaper. Backends: **NVIDIA cuDSS (GPU)**, **Intel MKL
-  PARDISO (all CPU cores)** or managed CSparse. *Auto* benchmarks GPU vs CPU on the first factorisation and keeps the
-  faster one (see `native/README.md`). Measured on a 17 k-DOF gear-blank system: managed 14 s, cuDSS (RTX 4000 Ada)
+  PARDISO (all CPU cores)** or managed CSparse. *Auto* times GPU and CPU on the first factorisation and keeps the CPU
+  unless the GPU is at least 1.5× faster: MKL results are bit-reproducible, cuDSS results vary by about 1 % in the load
+  from run to run (see `native/README.md`). Measured on a 17 k-DOF gear-blank system: managed 14 s, cuDSS (RTX 4000 Ada)
   ≈ 0.1–0.35 s, MKL (32-core Threadripper) ≈ 0.09–0.18 s.
 
 ## Verification (see `tests/`)

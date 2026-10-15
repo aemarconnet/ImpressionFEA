@@ -3,7 +3,7 @@ namespace ImpressionFEA.Core.Solver.Linear;
 /// <summary>Which sparse direct solver factorises the 3D system.</summary>
 public enum LinearBackend
 {
-    /// <summary>Fastest available: NVIDIA GPU (cuDSS) → multithreaded CPU (MKL PARDISO) → managed CSparse.</summary>
+    /// <summary>Measured on the first factorisation: CPU (MKL PARDISO, bit-reproducible) unless the NVIDIA GPU (cuDSS) is at least 1.5× faster; managed CSparse when neither is available.</summary>
     Auto,
 
     /// <summary>NVIDIA cuDSS on the GPU (requires an NVIDIA GPU and driver supporting CUDA 12).</summary>

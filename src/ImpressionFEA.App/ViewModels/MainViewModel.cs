@@ -423,7 +423,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     public IReadOnlyList<BackendOption> Backends { get; } =
     [
-        new(LinearBackend.Auto, "Auto (benchmark GPU vs CPU)"),
+        new(LinearBackend.Auto, "Auto (CPU unless the GPU is 1.5× faster)"),
         new(LinearBackend.CudaGpu, "NVIDIA GPU — cuDSS"),
         new(LinearBackend.MklCpu, "CPU multithreaded — MKL PARDISO"),
         new(LinearBackend.Managed, "CPU managed — CSparse (slow)"),
