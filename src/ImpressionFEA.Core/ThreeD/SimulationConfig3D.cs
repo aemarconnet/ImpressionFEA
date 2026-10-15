@@ -155,18 +155,21 @@ public sealed record SimulationConfig3D
         double h = AutoElementSize(targetNodes);
         double lo = FinestElementSize, hi = CoarsestElementSize;
         if (!(h < hi) || targetNodes <= 0) return h;
-        for (int pass = 0; pass < 2; pass++)
+        double best = h, bestError = double.MaxValue;
+        for (int pass = 0; pass < 3; pass++)
         {
-            if (InitialNodeCount(h) is not { } n || n <= 0) return h;
+            if (InitialNodeCount(h) is not { } n || n <= 0) return bestError < double.MaxValue ? best : h;
             double ratio = (double)n / targetNodes;
-            if (Math.Abs(ratio - 1) < 0.05) break;
-            // N ≈ a/h³ + b/h²: an exponent of 2.8 between the two converges in one or two steps.
+            if (Math.Abs(ratio - 1) < bestError) (best, bestError) = (h, Math.Abs(ratio - 1));
+            if (bestError < 0.05) break;
+            // N ≈ a/h³ + b/h²: an exponent of 2.8 between the two converges in one or two steps. Coarse meshes count
+            // nodes in lumps, so a step can overshoot: keep the best size actually meshed.
             double next = Tidy(Math.Min(Math.Max(h * Math.Pow(ratio, 1 / 2.8), lo), hi), lo, hi);
             if (next == h) break;
             h = next;
         }
 
-        return h;
+        return best;
     }
 
     private static double Tidy(double h, double lo, double hi)

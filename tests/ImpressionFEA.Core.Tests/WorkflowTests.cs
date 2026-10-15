@@ -8,7 +8,7 @@ namespace ImpressionFEA.Core.Tests;
 
 public class WorkflowTests
 {
-    private static string RepoFolder(string name)
+    internal static string RepoFolder(string name)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, name))) dir = dir.Parent;

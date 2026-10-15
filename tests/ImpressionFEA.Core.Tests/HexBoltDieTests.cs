@@ -9,13 +9,13 @@ public class HexBoltDieTests
     {
         var d = DiePresets3D.HexBoltHead();
         Assert.Equal(Symmetry3D.Quarter, d.Symmetry);
-        Assert.Equal(1.6, d.FlashThickness);
+        Assert.Equal(2.0, d.FlashThickness);
 
-        // Top die (closed): head top inside the hex, land over the 3/16" ring, gutter beyond.
+        // Top die (closed): head top inside the hex, land over the 1/4" ring, gutter beyond.
         Assert.Equal(15.5, d.TopClosed.SurfaceZ(0, 0), 3);
         Assert.Equal(15.5, d.TopClosed.SurfaceZ(10, 5), 3);
-        Assert.Equal(1.6, d.TopClosed.SurfaceZ(0, 19.05 + 2.4), 3); // middle of the land, across a flat
-        Assert.Equal(6.6, d.TopClosed.SurfaceZ(0, 19.05 + 4.76 + 8), 3); // outer face beyond the gutter step
+        Assert.Equal(2.0, d.TopClosed.SurfaceZ(0, 19.05 + 3.7), 3); // middle of the land, across a flat
+        Assert.Equal(7.0, d.TopClosed.SurfaceZ(0, 19.05 + 6.35 + 8), 3); // outer face beyond the gutter step
 
         // Bottom die: flat parting face, Ø1" bore 1-1/2" deep (with clearance), 45° chamfer.
         Assert.Equal(0, d.Bottom.SurfaceZ(20, 0), 3);
@@ -25,7 +25,7 @@ public class HexBoltDieTests
 
         // Cavity: hex head (drafted prism) + bore, within a few per cent of the hand calculation.
         double hexArea = 2 * Math.Sqrt(3) * 19.05 * 19.05;
-        double expected = hexArea * (15.5 - 1.6) + hexArea * 1.6 + Math.PI * 13.0 * 13.0 * 38.1;
+        double expected = hexArea * (15.5 - 2.0) + hexArea * 2.0 + Math.PI * 13.0 * 13.0 * 38.1;
         Assert.InRange(d.CavityVolume(), 0.95 * expected, 1.02 * expected);
 
         // The 1" bar seats on the bore floor and the top die first touches it above the parting plane.

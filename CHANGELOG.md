@@ -9,7 +9,8 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
   add-in** (ticked when SOLIDWORKS is found) is registered by the installer itself, machine-wide, without PowerShell;
   uninstalling removes it. The light installer can download the NVIDIA GPU solver on its last page.
 - **Automatic element size**: in 3D, h is chosen for about **8,000 nodes** in the initial mesh (Advanced ▸ *Target
-  nodes*, remembered between sessions), calibrated on the actual mesh, within the node budget and the four-elements-
+  nodes*, remembered between sessions), calibrated on the actual mesh (the best of up to three trial meshes, since a
+  coarse mesh counts nodes in lumps), within the node budget and the four-elements-
   across limit. It follows every change of the workpiece, so a resized die-only workpiece no longer disappears for
   having too few or too many elements. Automatic values are grey; typing a value makes it a bold **override** that
   stays; clearing the box returns to automatic. The stroke increment follows h the same way (0.2·h). Setups record
@@ -51,7 +52,10 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
   overshooting; convergence tolerance 1e-3 (was 1e-4). Loads stay within the solver's own run-to-run scatter. Older
   setups keep the tolerance they were saved with.
 - **Reproducible results**: the choice between an iterative solve and a refactorisation no longer depends on timings,
-  so the same setup gives the same answer however busy the computer is (it varied by 1–2 % before).
+  so on the CPU solver (MKL) the same setup gives the same answer however busy the computer is (it varied by 1–2 %
+  before). GPU (cuDSS) factorisations are not bit-reproducible. Identical GPU runs of the hex bolt head differ by up
+  to about 1 %, and with the former 1.6 mm flash GPU and CPU differed by 4 %. *Auto* keeps whichever solver is faster
+  on the first factorisation, so choose the CPU solver (Advanced) when reruns must match exactly.
 - **Closing load**: run summaries, the completion message and comparison reports show the load at die closure from a
   straight-line fit over the last millimetre of stroke. It scatters by about ±1 % between equivalent runs, against
   ±3 % for the single closure increment, so it is the figure to compare designs and meshes by.
@@ -60,8 +64,26 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
   estimates the closing load at a perfectly fine mesh (settled finer levels, or a Richardson extrapolation). It says
   how far the run is from it: converged within 3 %, not converged, still changing, or inconclusive. It shows progress
   and an ETA, and Abort stops it. The result goes in the status line, the log, the run summary and the reports. It
-  takes roughly 5–10 times as long as the run. On the Balanced hex bolt head it found the 1.6 mm flash run about 6 %
-  low (17 minutes), and the 0.8 mm flash run 40 % or more low with the load still rising (30 minutes).
+  takes roughly 3–10 times as long as the run. On the Balanced hex bolt head (2 mm flash) it finds the run about 9 % or
+  more low, in 7 minutes. With the former 0.8 mm flash the run was 40 % or more low and the check took 30 minutes.
+- **Flash lands redesigned to the ASM guidance (thick side)**: every built-in die's flash now follows Altan, Ngaile &
+  Shen (§14.4–14.5). Flash thickness is 1.25–2× the industry-survey trend for the part's steel weight (Fig. 14.13),
+  with a land ratio w/t of about 3 (the load data of Fig. 14.14 cover 2–4). The thick side keeps the isothermal results
+  steady and the meshes affordable; thermal effects, when added, will change flash design and loads substantially.
+  - Gear blank: 3 mm flash, land shortened to 9 mm (w/t 3.0; was 3.5). Load and fill are unchanged: the flash reaches
+    the gutter at closure either way.
+  - Flanged shaft: 2 mm flash, 6 mm land (was 7.2).
+  - Connecting rods (3D, and the 2D shank section): 2.5 mm flash with a 7.5 mm land, the book's own connecting-rod
+    flash (was 1.8 and 1.6 mm, w/t 4.4 and 4.0). The 3D rod's straight bar now carries 30 % excess stock (was 10 %):
+    it fills about 91 % at closure (was 86 %); a straight bar cannot fill a rod completely without a preform.
+  - Hex bolt head: 2 mm flash (was 1.6) with a 1/4" land (5.8 mm flat, w/t 2.9; was 3/16"). It still fills
+    (99.8 %). The Balanced closing load is 95.6 t on the CPU solver (was 105.6 t). With the thicker flash, GPU and CPU
+    runs agree within about 0.6 % (was 4 %).
+  - Demo 8 now sweeps 1.6, 2.0 and 2.6 mm instead of 0.8, 1.6 and 3.2 mm, which lay outside the guidance.
+
+  `FlashDesign` (Core) holds the digitised survey curves, Vieregge's equations (14.6, 14.7) and a guideline check.
+  Each die now declares its flash land, and the tests measure it on the die geometry. The README has a new section,
+  "Flash design of the built-in dies".
 - **Staged resolution and graded meshes (solver options, for studies)**: a "fine finish" that switches to a finer
   element size near die closure, and graded isosurface stuffing (fine where the metal deforms, coarse in rigid
   zones). Both work and are tested; neither is in the user interface yet.

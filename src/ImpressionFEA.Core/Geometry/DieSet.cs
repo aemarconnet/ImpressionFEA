@@ -38,6 +38,9 @@ public sealed class DieSet
     /// <summary>Billet volume / cavity volume used to size the recommended billet (excess goes to flash).</summary>
     public double VolumeFactor { get; init; } = 1.10;
 
+    /// <summary>Design flash land (thickness and flat width; see <see cref="FlashDesign"/>), null for dies without one.</summary>
+    public FlashLand? Flash { get; init; }
+
     public required double RecommendedElementSize { get; init; }
 
     public required double RecommendedStrokeIncrement { get; init; }

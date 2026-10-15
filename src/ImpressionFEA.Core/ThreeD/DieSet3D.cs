@@ -91,6 +91,9 @@ public sealed class DieSet3D
     /// <summary>Flash-land thickness of a parametric die set, mm (null: not a parameter of this die set).</summary>
     public double? FlashThickness { get; init; }
 
+    /// <summary>Design flash land (thickness and flat width; see <see cref="FlashDesign"/>), null for dies without one.</summary>
+    public FlashLand? Flash { get; init; }
+
     /// <summary>Builds the same die set with another flash-land thickness (mm); null when not parametric.</summary>
     public Func<double, DieSet3D>? WithFlashThickness { get; init; }
 

@@ -43,6 +43,55 @@ Every report repeats these at the top:
   its source. Load and fill are engineering estimates for design comparison,
   not certified predictions.
 
+## Flash design of the built-in dies
+
+Every built-in die's flash land follows the impression-die forging guidance in Altan, Ngaile & Shen, *Cold and Hot
+Forging: Fundamentals and Applications* (ASM International, 2005), §14.4–14.5:
+
+* **Industry survey (Fig. 14.13).** About 1,500 steel forgings from eight companies, plotted as flash thickness t and
+  land ratio w/t against forging weight (w is the flat land width). The trend thickness grows with weight: about
+  1.25 mm at 0.1 kg, 1.85 mm at 1 kg and 4.6 mm at 10 kg. The ratio w/t falls from about 4.5 towards 2. Most forgings
+  lie between half and twice the trend thickness.
+* **Vieregge's rules for round forgings (Eq. 14.6–14.7)** give a thinner flash with minimal flash allowance, for
+  accurately sized billets.
+* **Forging-pressure data (Fig. 14.14)** cover land ratios w/t of 2 to 4.
+
+**Policy: the thick side.** The solver is isothermal (see Assumptions). In a real press a thin flash chills against
+the dies and deforms fast, so its flow stress, and with it the closing load, rises well above what an isothermal model
+predicts; the book uses a separate flow stress for the flash for this reason. A thin flash also needs a much finer
+mesh. The built-in dies therefore use:
+
+* a flash thickness t of 1.25 to 2 times the survey trend for the part's steel weight;
+* a land ratio w/t of about 3 (2.5 to 3.5).
+
+Results are steadier and less sensitive to the mesh. On the hex bolt head, GPU and CPU runs agree within about 0.6 %
+with the 2 mm flash, against 4 % with the former 1.6 mm. Loads sit at the low end of what a thinner,
+production-optimised flash would need. The Balanced hex closing load is 95.6 t with the 2 mm flash and was 105.6 t with
+1.6 mm. When heat transfer is added (planned: die temperature and deformation heating), flash design and
+loads will change substantially, and this choice will be revisited.
+
+| Die | Steel weight | Survey trend t (w/t) | Flash t | Flat land w | w/t |
+|---|---|---|---|---|---|
+| Gear blank (2D and 3D) | 1.42 kg | 2.1 mm (3.1) | 3.0 mm (1.4×) | 9.0 mm | 3.0 |
+| Flanged shaft (2D) | 0.49 kg | 1.5 mm (3.6) | 2.0 mm (1.3×) | 6.0 mm | 3.0 |
+| Connecting rod (3D) and its shank section (2D) | 0.51 kg | 1.6 mm (3.6) | 2.5 mm (1.6×) | 7.5 mm | 3.0 |
+| Hex bolt head 1" (3D) | 0.31 kg | 1.4 mm (3.8) | 2.0 mm, about 5/64" (1.4×) | 5.8 mm (1/4" land including a 1 mm edge radius) | 2.9 |
+
+Notes on the table:
+
+* The connecting rods use the flash of the book's own connecting-rod example (t = 0.1 in, w = 0.3 in). The 3D rod is
+  forged from a straight bar with 30 % excess stock, the top of the usual 10–30 % (Fig. 14.11). Even so it fills about
+  91 % at closure, because a straight bar puts too little metal into the ends; real rods are forged from a preform
+  (§14.6). With 10 % excess it filled 86 % with the former 1.8 mm flash and 83 % with the 2.5 mm flash.
+* The upset blocks have no flash.
+* The hex bolt head's flash thickness is an input. Demo 8 sweeps it over 1.6, 2.0 and 2.6 mm, all inside the guidance.
+* A real 1"-8 bolt is usually hot-headed in an upsetter with little or no flash; the hex die is a teaching example of
+  impression-die forging.
+
+`FlashDesign` (Core) holds the digitised survey curves, Vieregge's equations and a check against both. The tests
+(`FlashDesignTests`) measure each die's land on the closed die geometry, as the length where the gap stays within 5 %
+of t, and hold every die to this policy.
+
 ## Build from source
 
 ```
@@ -210,12 +259,12 @@ log, the run summary and the reports. The possible verdicts are:
 * **Inconclusive**: the loads zig-zag; the check gives the finest value with the spread as uncertainty.
 
 Only the end of the stroke is repeated, because that is where the load depends on the mesh. Even so, the check takes
-roughly 5–10 times as long as the run, because the finest level has about 3.5 times the nodes. On the Balanced hex
-bolt head the run takes 3 minutes; the check takes 17 minutes with the 1.6 mm flash and 30 minutes with the 0.8 mm
-flash.
+roughly 3–10 times as long as the run, because the finest level has about 3.5 times the nodes. On the Balanced hex
+bolt head with its 2 mm flash, the run takes about 2 minutes and the check about 7.
 
-The check found the Balanced runs about 6 % low with the 1.6 mm flash (finer meshes settle at about 111 t). With the
-0.8 mm flash they are 40 % or more low, and the load is still rising at 28,000 nodes. Thin flash needs a much finer mesh.
+On that die the check gives 97.5, 100.9 and 106.7 t at h = 1.60, 1.28 and 1.02 mm. So the Balanced run is about 9 %
+or more low; use Accurate when the load must be within a few per cent. With the former 0.8 mm flash the Balanced run was
+40 % or more low and the check took 30 minutes. That is one reason the built-in dies now use thicker flash.
 
 Input errors (the run cannot start; the workpiece is not drawn) and warnings appear in a box at the top left of the
 view, which says why; click its title to fold it. While a run is solving, the execution bar shows an **ETA**
@@ -338,8 +387,9 @@ models; automatic symmetry detection is not implemented yet. 3D runs take from t
 are limited by the node budget (12 k by default, adjustable under Advanced). Sharp CAD die edges are handled with
 small, bounded corner penetrations; fillets on the dies give cleaner results. When a wide flash gets thinner than
 about one element (h) in the last millimetres of the stroke, the 3D solution loses volume (several % in the sample
-hex flange); a finer mesh or thin-flash refinement (Advanced) reduces it at the cost of run time. Load and fill are
-engineering estimates, not certified predictions.
+hex flange); a finer mesh or thin-flash refinement (Advanced) reduces it at the cost of run time. The built-in dies
+avoid very thin flash (see *Flash design of the built-in dies*). Load and fill are engineering estimates, not
+certified predictions.
 
 ## Headless capture
 

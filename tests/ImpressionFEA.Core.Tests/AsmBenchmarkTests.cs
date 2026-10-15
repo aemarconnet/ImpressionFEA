@@ -272,7 +272,7 @@ public class AsmBenchmarkTests(ITestOutputHelper output)
     // ================================================================== 4. our presets vs the slab estimate
 
     /// <summary>
-    /// Gear blank (2D): rim radius 55.3 mm, flash land 3 × 14.7 mm, average cavity height from volume / plan area;
+    /// Gear blank (2D): rim radius 55.3 mm, the die's flash land (3 × 9 mm flat), average cavity height from volume / plan area;
     /// AISI 4140 at 1150 °C, 50 mm/s, m = 0.3. σ̄ at ε̄ = 1 and the cavity (v/H) and flash (v/t) strain rates.
     /// </summary>
     [Fact]
@@ -294,7 +294,7 @@ public class AsmBenchmarkTests(ITestOutputHelper output)
             RamSpeed = 50,
         };
         var (load, fill, peak) = ForgeToClosure(cfg);
-        double r = die.CavityOuterRadius, t = 3, w = 70 - r;
+        double r = die.CavityOuterRadius, t = die.Flash!.Thickness, w = die.Flash.Width;
         double hAvg = (die.CavityVolume(1) - FlashVolume(r, t, w)) / (Math.PI * r * r);
         double sc = MaterialPresets.Steel4140.At(1150).Stress(1, 50 / hAvg), sf = MaterialPresets.Steel4140.At(1150).Stress(1, 50 / t);
         var slab = SlabLoadEstimate.Axisymmetric(r, hAvg, t, w, 0.3, sc, sf);
@@ -308,7 +308,7 @@ public class AsmBenchmarkTests(ITestOutputHelper output)
 
     /// <summary>
     /// 1"-8 hex bolt head (3D, quarter model): hexagon 38.1 mm across flats as an equal-area disc, head height 15.5 mm,
-    /// flash land 1.6 × 4.76 mm; AISI 4140 at 1150 °C, 50 mm/s, m = 0.3.
+    /// the die's flash land (2 × 5.8 mm flat); AISI 4140 at 1150 °C, 50 mm/s, m = 0.3.
     /// </summary>
     [Fact]
     [Trait("Category", "Slow")]
@@ -322,7 +322,7 @@ public class AsmBenchmarkTests(ITestOutputHelper output)
         using var solver = new Forging3DSolver(cfg, _ => { });
         ForgingSnapshot s = solver.Initial();
         while (!solver.IsFinished) s = solver.Step(CancellationToken.None);
-        double af = 38.1, rEq = Math.Sqrt(Math.Sqrt(3) / 2 * af * af / Math.PI), hHead = 15.5, t = 1.6, w = 4.76;
+        double af = 38.1, rEq = Math.Sqrt(Math.Sqrt(3) / 2 * af * af / Math.PI), hHead = 15.5, t = die.Flash!.Thickness, w = die.Flash.Width;
         double sc = MaterialPresets.Steel4140.At(1150).Stress(1, 50 / hHead), sf = MaterialPresets.Steel4140.At(1150).Stress(1, 50 / t);
         var slab = SlabLoadEstimate.Axisymmetric(rEq, hHead, t, w, 0.3, sc, sf);
         Bench($"Hex bolt head FEM at closure (fill {s.FillPercent:F1} %, h {hAuto:F2} mm) vs slab (r_eq {rEq:F1} mm, σc {sc:F0}, σf {sf:F0} MPa)", s.LoadNewton / ShortTon, slab.Total / ShortTon, "ton");

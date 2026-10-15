@@ -1,9 +1,9 @@
 {
   "title": "4 · Hex bolt head: 3D die fill and flash",
   "level": "Intermediate · 3D · built-in die set · a few minutes per run",
-  "summary": "A 1\" bar upset into the head of a 1\"-8 hex bolt (1-1/2\" across flats) with a 3/16\" flash land: a non-axisymmetric part that only a 3D model can predict.",
+  "summary": "A 1\" bar upset into the head of a 1\"-8 hex bolt (1-1/2\" across flats) with a flash land sized to the ASM guidance: a non-axisymmetric part that only a 3D model can predict.",
   "instructions": [
-    "1. The bottom die holds the Ø1\" × 1-1/2\" shank in a bore; the top die carries the hex head (3° draft) and a 3/16\" wide, 1/16\" thick flash land with a gutter beyond it. Quarter model (the part is symmetric about both side planes); the dies are exact flat and cylindrical faces. The bar stands in the bore and its free end is upset into the head.",
+    "1. The bottom die holds the Ø1\" × 1-1/2\" shank in a bore; the top die carries the hex head (3° draft) and a flash land with a gutter beyond it: 2 mm (about 5/64\") thick and 1/4\" wide (about 5.8 mm flat, w/t 2.9), on the thick side of industry practice for a 0.3 kg steel forging (ASM survey: about 1.4 mm). The isothermal model gives steadier loads with a thicker flash. Quarter model (the part is symmetric about both side planes); the dies are exact flat and cylindrical faces. The bar stands in the bore and its free end is upset into the head.",
     "2. Press Solve. Turn Cut-away on (View ▾) to see the material flowing out of the bar into the hex.",
     "3. Watch the fill curve: the round upset reaches the flats first; the hex corners fill last, as flash spreads over the land and the load climbs steeply.",
     "4. Use Ctrl+5 (top view) and the slider to watch the corners fill and the flash form. F refits the view.",
