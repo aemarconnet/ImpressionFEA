@@ -453,6 +453,14 @@ public partial class MainWindow : Window
             await Task.Delay(500);
         }
 
+        // --mesh-check: the convergence check of the selected run (after the solve), as from the RUNS button.
+        if (Environment.GetCommandLineArgs().Contains("--mesh-check") && vm.MeshCheckCommand.CanExecute(null))
+        {
+            vm.MeshCheckCommand.Execute(null);
+            await Task.Delay(500);
+            while (vm.IsCheckingMesh) await Task.Delay(500);
+        }
+
         // --scrub N shows increment N (after the solve) for the capture.
         var argv = Environment.GetCommandLineArgs();
         int sc = Array.IndexOf(argv, "--scrub");
@@ -494,6 +502,11 @@ public partial class MainWindow : Window
         // --runs-folder DIR: every run's telemetry and a summary.csv (status, peak load, fill per run) for batch checks.
         if (Environment.GetCommandLineArgs().SkipWhile(a => a != "--runs-folder").Skip(1).FirstOrDefault() is { } runsFolder && vm.Runs.Count > 0)
             vm.SaveAllTelemetry(runsFolder);
+
+        // --log-out FILE: the solver log, status line and run summaries (batch checks).
+        if (Environment.GetCommandLineArgs().SkipWhile(a => a != "--log-out").Skip(1).FirstOrDefault() is { } logOut)
+            System.IO.File.WriteAllText(logOut, vm.RunLog + Environment.NewLine + "STATUS: " + vm.StatusText + Environment.NewLine
+                + string.Join(Environment.NewLine, vm.Runs.Select(r => "RUN: " + r.Label + " · " + r.Summary)));
         Application.Current.Shutdown(vm.State == RunState.Failed ? 1 : 0);
     }
 }

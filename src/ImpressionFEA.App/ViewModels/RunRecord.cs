@@ -5,7 +5,10 @@ using OxyPlot.Series;
 
 namespace ImpressionFEA.App.ViewModels;
 
-/// <summary>Everything needed to show a finished run again: its increments, dies and view framing.</summary>
+/// <summary>
+/// Everything needed to show a finished run again: its increments, dies and view framing; for completed 3D runs also
+/// the solver configuration and the state near closure, for a mesh convergence check.
+/// </summary>
 public sealed record RunResults(
     IReadOnlyList<ForgingSnapshot> Snapshots,
     ImpressionFEA.Core.Geometry.DieSet? Die2D,
@@ -13,7 +16,9 @@ public sealed record RunResults(
     System.Windows.Rect ViewBounds,
     System.Windows.Media.Media3D.Rect3D Bounds3D,
     double PartLength,
-    string Log = "");
+    string Log = "",
+    ImpressionFEA.Core.ThreeD.SimulationConfig3D? Config3D = null,
+    ImpressionFEA.Core.ThreeD.Forging3DCheckpoint? Checkpoint = null);
 
 /// <summary>A point on a telemetry-chart curve: the run (null: results not stored as a run), increment, telemetry and, when kept, the increment's results.</summary>
 public sealed record CurveHit(
@@ -91,11 +96,27 @@ public sealed class RunRecord : ObservableObject
         {
             if (!Set(ref _results, value)) return;
             OnPropertyChanged(nameof(CanShow));
+            OnPropertyChanged(nameof(CanCheckMesh));
             OnPropertyChanged(nameof(Tip));
         }
     }
 
     public bool CanShow => _results is not null;
+
+    /// <summary>A mesh convergence check is possible: a completed 3D run whose state near closure is still stored.</summary>
+    public bool CanCheckMesh => _results is { Checkpoint: not null, Config3D: not null };
+
+    private ImpressionFEA.Core.ThreeD.ConvergenceResult? _meshCheck;
+
+    /// <summary>Result of this run's mesh convergence check (null: not checked).</summary>
+    public ImpressionFEA.Core.ThreeD.ConvergenceResult? MeshCheck
+    {
+        get => _meshCheck;
+        set
+        {
+            if (Set(ref _meshCheck, value)) OnPropertyChanged(nameof(Summary));
+        }
+    }
 
     public string Tip => Label + (CanShow ? "  ·  click to show this run's results again" : "  ·  telemetry only (full results released to save memory)");
 
@@ -130,7 +151,14 @@ public sealed class RunRecord : ObservableObject
         _ => "failed",
     };
 
-    public string Summary => Units.Current.Loadf(ClosingLoad ?? PeakLoad) + FormattableString.Invariant($" · {FinalFill:F1} % · {StatusText}");
+    public string Summary => Units.Current.Loadf(ClosingLoad ?? PeakLoad) + FormattableString.Invariant($" · {FinalFill:F1} % · {StatusText}")
+        + _meshCheck switch
+        {
+            { Kind: ImpressionFEA.Core.ThreeD.ConvergenceKind.StillChanging, ErrorOfRunPercent: { } e } m => FormattableString.Invariant($" · mesh {(m.Rising ? "≤" : "≥")}{e:+0;-0;0} %"),
+            { ErrorOfRunPercent: { } e } => FormattableString.Invariant($" · mesh {e:+0;-0;0} %"),
+            { Kind: ImpressionFEA.Core.ThreeD.ConvergenceKind.Uncertain } => " · mesh ?",
+            _ => "",
+        };
 
     private static List<DataPoint> LoadPoints(IReadOnlyList<TelemetryRow> rows) =>
         rows.Select(r => new DataPoint(-Units.Current.L(r.DieGap), Units.Current.LoadFromTonnes(r.LoadTonnes))).ToList();

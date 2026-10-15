@@ -59,7 +59,7 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>The queue can be changed (nothing is solving or exporting).</summary>
-    public bool CanEditQueue => !IsRunning && !IsSweeping && !IsExporting;
+    public bool CanEditQueue => !IsRunning && !IsSweeping && !IsExporting && !IsCheckingMesh;
 
     public int PendingCount => Queue.Count(q => q.State == QueueItemState.Pending);
 

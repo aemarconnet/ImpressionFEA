@@ -130,4 +130,7 @@ public sealed class SimulationResult
     public string? Message { get; init; }
 
     public TimeSpan Elapsed { get; init; }
+
+    /// <summary>3D runs: solver state near die closure (gap ≤ <see cref="ThreeD.MeshConvergence.CheckpointGap"/>), for a mesh convergence check.</summary>
+    public ThreeD.Forging3DCheckpoint? Checkpoint { get; init; }
 }

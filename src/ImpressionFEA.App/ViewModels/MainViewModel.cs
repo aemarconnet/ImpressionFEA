@@ -139,12 +139,13 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
             }
         };
 
-        SolveCommand = new RelayCommand(() => _ = SolveAsync(), () => !IsRunning && !IsSweeping && !IsExporting);
+        SolveCommand = new RelayCommand(() => _ = SolveAsync(), () => !IsRunning && !IsSweeping && !IsExporting && !IsCheckingMesh);
         AbortCommand = new RelayCommand(() =>
         {
             _sweepAbort = true;
             _cts?.Cancel();
-        }, () => IsRunning || IsSweeping);
+            _meshCheckCts?.Cancel();
+        }, () => IsRunning || IsSweeping || IsCheckingMesh);
         LoadPlot = BuildPlot();
         PropertyChanged += (_, e) =>
         {
@@ -794,6 +795,12 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
 
     private async Task SolveAsync()
     {
+        if (IsCheckingMesh)
+        {
+            StatusText = "A mesh check is running — wait for it or press Abort.";
+            return;
+        }
+
         var settings = CaptureSettings();
         IReadOnlyList<string> errors = _analysis3D ? BuildConfig3D().Validate() : BuildConfig().Validate();
         if (errors.Count > 0)
@@ -827,10 +834,11 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         _eta.Reset();
 
         SimulationResult result;
+        var config3D = _analysis3D ? BuildConfig3D() : null;
         try
         {
-            result = _analysis3D
-                ? await _engine.RunAsync(BuildConfig3D(), this, _cts.Token)
+            result = config3D is not null
+                ? await _engine.RunAsync(config3D, this, _cts.Token)
                 : await _engine.RunAsync(BuildConfig(), this, _cts.Token);
         }
         finally
@@ -872,7 +880,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         _scrubIndex = -1;
         ScrubIndex = ScrubMaximum;
         Tick(); // flush the queued log lines so the run keeps its complete log
-        AddRunRecord(result, settings, _clock.Elapsed);
+        AddRunRecord(result, settings, _clock.Elapsed, config3D);
         SaveJobSetup();
         Tick();
     }
@@ -985,7 +993,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         CheckSourceFile();
         var t = _clock.Elapsed;
         ElapsedText = F($"{(int)t.TotalMinutes:00}:{t.Seconds:00}.{t.Milliseconds / 100}");
-        if (IsRunning) UpdateEta(t);
+        if (IsRunning || IsCheckingMesh) UpdateEta(t);
         if (_plotDirty)
         {
             _plotDirty = false;
@@ -1004,7 +1012,7 @@ public sealed partial class MainViewModel : ObservableObject, ISimulationObserve
         }
 
         var finish = DateTime.Now.AddSeconds(left);
-        string tip = $"Estimated time to completion of this run (finishes about {finish:HH:mm:ss}). Increments slow down near die closure; the estimate follows the recent rate.";
+        string tip = $"Estimated time to completion of {(IsCheckingMesh ? "the mesh check" : "this run")} (finishes about {finish:HH:mm:ss}). Increments slow down near die closure; the estimate follows the recent rate.";
         int pending = IsQueueRunning ? Queue.Count(q => q.State == QueueItemState.Pending) : 0;
         if (pending > 0)
         {

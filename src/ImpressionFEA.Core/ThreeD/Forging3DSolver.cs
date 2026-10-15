@@ -1882,6 +1882,43 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         return maxEdge > 2.8 * _h ? F($"surface stretched ({maxEdge:F2} mm edges)") : null;
     }
 
+    // ------------------------------------------------------------------ checkpoint / restart
+
+    /// <summary>
+    /// The solver state at the end of an increment (mesh, positions, per-element history, velocities, contact), enough
+    /// to continue the run with another solver — typically at another element size, for a mesh convergence check.
+    /// </summary>
+    public Forging3DCheckpoint Checkpoint() => new(
+        _t, (Vec3[])_x.Clone(), (Vec3[])_vg.Clone(), (NodeContact[])_contact.Clone(), (double[])_eps.Clone(), (double[])_dmg.Clone(),
+        (double[])_elSig.Clone(), (double[])_elRate.Clone(), (double[])_elMean.Clone(), [.. _hotSpots], _gap, _ds, _time, _h, StepIndex);
+
+    /// <summary>
+    /// Continues from <paramref name="cp"/> (taken from a solver with the same configuration apart from the element
+    /// size): the workpiece is remeshed at this solver's h and its history remapped, as at any remesh.
+    /// </summary>
+    public void RestoreFrom(Forging3DCheckpoint cp)
+    {
+        ArgumentNullException.ThrowIfNull(cp);
+        Allocate(cp.Mesh, (Vec3[])cp.X.Clone());
+        Array.Copy(cp.Vg, _vg, _nn);
+        Array.Copy(cp.Contact, _contact, _nn);
+        Array.Copy(cp.Eps, _eps, _ne);
+        Array.Copy(cp.Damage, _dmg, _ne);
+        Array.Copy(cp.Sigma, _elSig, _ne);
+        Array.Copy(cp.Rate, _elRate, _ne);
+        Array.Copy(cp.Mean, _elMean, _ne);
+        _hotSpots.Clear();
+        _hotSpots.AddRange(cp.HotSpots);
+        _gap = cp.Gap;
+        _ds = Math.Min(cp.Ds * _h / cp.H, StepCap);
+        _time = cp.Time;
+        StepIndex = cp.Step;
+        _vgPrev = [];
+        _warm = false;
+        if (!Remesh(F($"restart from step {cp.Step} at h {_h:F2} mm (was {cp.H:F2})")))
+            throw new MeshDistortionException(F($"Could not remesh the checkpoint of step {cp.Step} at h {_h:F2} mm."));
+    }
+
     // ------------------------------------------------------------------ run-time profile
 
     private double _tAssemble, _tFactor, _tPcg, _tUpdate, _tRemesh, _tTotal;
@@ -2204,3 +2241,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         };
     }
 }
+
+/// <summary>Solver state at the end of an increment (see <see cref="Forging3DSolver.Checkpoint"/>).</summary>
+public sealed record Forging3DCheckpoint(
+    TetMesh Mesh, Vec3[] X, Vec3[] Vg, NodeContact[] Contact, double[] Eps, double[] Damage, double[] Sigma, double[] Rate, double[] Mean,
+    IReadOnlyList<(Vec3 At, int Level)> HotSpots, double Gap, double Ds, double Time, double H, int Step);

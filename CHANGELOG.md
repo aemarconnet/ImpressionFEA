@@ -55,6 +55,13 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 - **Closing load**: run summaries, the completion message and comparison reports show the load at die closure from a
   straight-line fit over the last millimetre of stroke. It scatters by about ±1 % between equivalent runs, against
   ±3 % for the single closure increment, so it is the figure to compare designs and meshes by.
+- **Mesh check…** (RUNS, 3D): is the selected run's mesh fine enough? Every 3D run stores its state at a 2 mm die gap.
+  The check re-solves the rest of the stroke at the run's element size and at 0.8× and 0.64× of it, in parallel. It
+  estimates the closing load at a perfectly fine mesh (settled finer levels, or a Richardson extrapolation). It says
+  how far the run is from it: converged within 3 %, not converged, still changing, or inconclusive. It shows progress
+  and an ETA, and Abort stops it. The result goes in the status line, the log, the run summary and the reports. It
+  takes roughly 5–10 times as long as the run. On the Balanced hex bolt head it found the 1.6 mm flash run about 6 %
+  low (17 minutes), and the 0.8 mm flash run 40 % or more low with the load still rising (30 minutes).
 - **Staged resolution and graded meshes (solver options, for studies)**: a "fine finish" that switches to a finer
   element size near die closure, and graded isosurface stuffing (fine where the metal deforms, coarse in rigid
   zones). Both work and are tested; neither is in the user interface yet.

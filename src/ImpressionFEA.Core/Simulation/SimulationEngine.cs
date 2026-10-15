@@ -93,11 +93,12 @@ public sealed class NativeFemEngine : ISimulationEngine
         var sw = Stopwatch.StartNew();
         var snapshots = new List<ForgingSnapshot>();
         IForgingStepper? solver = null;
+        ThreeD.Forging3DCheckpoint? checkpoint = null;
 
         SimulationResult Finish(SimulationStatus status, string? message)
         {
             if (message is not null) observer.OnLog((status == SimulationStatus.Failed ? "ERROR: " : "") + message);
-            return new SimulationResult { Snapshots = snapshots, Status = status, Message = message, Elapsed = sw.Elapsed };
+            return new SimulationResult { Snapshots = snapshots, Status = status, Message = message, Elapsed = sw.Elapsed, Checkpoint = status == SimulationStatus.Completed ? checkpoint : null };
         }
 
         try
@@ -121,6 +122,7 @@ public sealed class NativeFemEngine : ISimulationEngine
                 if (solver.StepIndex >= MaxIncrements)
                     throw new SolverDivergenceException($"Increment limit ({MaxIncrements}) reached before die closure.");
                 var snap = solver.Step(ct);
+                if (checkpoint is null && solver is ThreeD.Forging3DSolver s3 && snap.DieGap <= ThreeD.MeshConvergence.CheckpointGap) checkpoint = s3.Checkpoint();
                 snapshots.Add(snap);
                 observer.OnStep(snap);
             }

@@ -663,6 +663,8 @@
                                                         ToolTip="Run (or queue) the current setup for several values of one input: temperature, friction, ram speed, material, …" />
                                                 <Button Content="Compare…" Click="CompareReport_Click" IsEnabled="{Binding CanExport}" Style="{StaticResource ListBtn}"
                                                         ToolTip="Comparison report: a comparison page of the chosen runs, then each run's own report" />
+                                                <Button Content="Mesh check…" Command="{Binding MeshCheckCommand}" Style="{StaticResource ListBtn}" ToolTipService.ShowOnDisabled="True"
+                                                        ToolTip="Is the selected 3D run's mesh fine enough? Solves the last 2 mm of the stroke again at the run's element size and two finer ones (×0.8, ×0.64) in parallel, and estimates the closing load at a perfectly fine mesh. Takes roughly 5–10 times as long as the run (the finest level has about 3.5× the nodes); Abort stops it." />
                                             </StackPanel>
                                         </DockPanel>
                                         <Grid>

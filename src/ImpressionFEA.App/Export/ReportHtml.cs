@@ -195,6 +195,20 @@ public static partial class ReportHtml
         Kpi(h, "Final cavity fill", F($"{last.FillPercent:F1} %"), "gap " + u.Lf(last.DieGap) + " at the end");
         Kpi(h, "Volume change", F($"{last.VolumeChangePercent:+0.00;-0.00;0.00} %"), "numerical");
         Kpi(h, "Max eff. strain", F($"{rows.Max(x => x.MaxEffectiveStrain):F2}"), "σ̄ max " + u.Sf(rows.Max(x => x.MaxVonMises)));
+        if (r.Run?.MeshCheck is { Estimate: { } est } mc)
+        {
+            string sizes = " · h " + u.Lf(mc.Levels[0].H) + " → " + u.Lf(mc.Levels[^1].H);
+            bool changing = mc.Kind == ImpressionFEA.Core.ThreeD.ConvergenceKind.StillChanging;
+            Kpi(h, "Mesh check", (changing ? (mc.Rising ? "≥ " : "≤ ") : "") + E(u.Loadf(est)) + (changing ? "" : F($" <small>±{mc.UncertaintyPercent:F0} %</small>")),
+                mc switch
+                {
+                    { Kind: ImpressionFEA.Core.ThreeD.ConvergenceKind.StillChanging, ErrorOfRunPercent: { } e } => F($"load still changing with the mesh · this run {e:+0;-0;0} % or more"),
+                    { ErrorOfRunPercent: { } e } => F($"fine-mesh closing load · this run {e:+0.0;-0.0;0.0} %"),
+                    _ => "inconclusive: finest mesh's closing load",
+                } + sizes,
+                mc.NeedsFinerMesh ? "bad" : "");
+        }
+
         Kpi(h, "Status", E(r.Run?.StatusText ?? "—"),
             F($"{rows.Count - 1} increments · ") + (r.Log.Length > 0 ? F($"{remeshes} remeshes · ") : "") + F($"{(r.Run?.Elapsed.TotalSeconds ?? 0):F1} s"));
         h.Append("</div>");
@@ -349,6 +363,21 @@ public static partial class ReportHtml
             r => r.Run!.PeakLoad > r.Settings.PressCapacity ? "bad" : rank && r.Run.PeakLoad == bestPeak ? "best" : "");
         Row("… at die gap (" + u.Length + ")", r => u.L(r.Rows.MaxBy(x => x.LoadTonnes)!.DieGap).ToString(u.LengthFormat, Inv));
         Row("Closing load, fitted over the last mm (" + u.Load + ")", r => r.Run!.ClosingLoad is { } c ? u.LoadFromTonnes(c).ToString(u.LoadFormat, Inv) : "–");
+        if (runs.Any(r => r.Run!.MeshCheck is not null))
+        {
+            Row("Mesh check: fine-mesh closing load (" + u.Load + ")",
+                r => r.Run!.MeshCheck switch
+                {
+                    { Kind: ImpressionFEA.Core.ThreeD.ConvergenceKind.StillChanging, Estimate: { } x, ErrorOfRunPercent: { } e } mc => (mc.Rising ? "≥ " : "≤ ") + u.LoadFromTonnes(x).ToString(u.LoadFormat, Inv) + F($" (run {e:+0;-0;0} % or more)"),
+                    { Estimate: { } x, ErrorOfRunPercent: { } e } mc => u.LoadFromTonnes(x).ToString(u.LoadFormat, Inv) + F($" ±{mc.UncertaintyPercent:F0} % (run {e:+0.0;-0.0;0.0} %)"),
+                    { Estimate: { } x } mc => u.LoadFromTonnes(x).ToString(u.LoadFormat, Inv) + F($" ±{mc.UncertaintyPercent:F0} % (inconclusive)"),
+                    null => "not checked",
+                    _ => "no estimate",
+                },
+                r => r.Run!.MeshCheck?.NeedsFinerMesh == true ? "bad" : "");
+        }
+
+
         Row("Final cavity fill (%)", r => F($"{r.Run!.FinalFill:F1}"), r => rank && r.Run!.FinalFill == bestFill ? "best" : "");
         Row("Final die gap (" + u.Length + ")", r => u.L(r.Rows[^1].DieGap).ToString(u.LengthFormat, Inv));
         Row("Volume change (%)", r => F($"{r.Run!.VolumeChange:+0.00;-0.00;0.00}"));

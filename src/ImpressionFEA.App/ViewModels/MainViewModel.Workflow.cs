@@ -571,14 +571,15 @@ public sealed partial class MainViewModel
 
     public bool HasRuns => Runs.Count > 0;
 
-    private void AddRunRecord(SimulationResult result, RunSettings settings, TimeSpan elapsed)
+    private void AddRunRecord(SimulationResult result, RunSettings settings, TimeSpan elapsed, ImpressionFEA.Core.ThreeD.SimulationConfig3D? config3D)
     {
         if (result.Snapshots.Count == 0) return;
         int n = ++_runCounter;
         string label = _runLabelOverride ?? DefaultLabel(settings);
         var rec = new RunRecord(n, F($"#{n} {label}"), settings, result.Snapshots.Select(TelemetryRow.From).ToList(), result.Status, elapsed, RunPalette[(n - 1) % RunPalette.Length])
         {
-            Results = new RunResults(result.Snapshots.ToList(), _analysis3D ? null : _selectedDie, _analysis3D ? _selectedDie3D : null, ViewBounds, Bounds3D, _billetLength, RunLog),
+            Results = new RunResults(result.Snapshots.ToList(), _analysis3D ? null : _selectedDie, _analysis3D ? _selectedDie3D : null, ViewBounds, Bounds3D, _billetLength, RunLog,
+                config3D, result.Checkpoint),
             Context = new RunContext(GeometryName, DieDescriptionText, MaterialSummary, AnalysisText),
         };
         rec.ShownChanged += (_, _) => SyncOverlays();

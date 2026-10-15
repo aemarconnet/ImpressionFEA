@@ -197,6 +197,26 @@ until you clear the box (Enter on an empty box returns to automatic). The stroke
 (automatic 0.2·h). Hover over any input for its allowed range; the element-size tooltip also gives the valid range of
 h for the current workpiece. 2D uses the preset's recommended h.
 
+**Mesh check…** (RUNS, 3D) answers "is this mesh fine enough?" for the selected run. Each 3D run stores its state
+at a 2 mm die gap; the check solves the rest of the stroke again at the run's h and at 0.8·h and 0.64·h in parallel.
+It fits each closing load and estimates the load at a perfectly fine mesh. The verdict appears in the status line, the
+log, the run summary and the reports. The possible verdicts are:
+
+* **Converged**: the run is within 3 % of the estimate.
+* **Not converged**: the run is further off, and the check gives its error. When the two finer loads agree within
+  their ±1.5 % scatter, the estimate is the finest value; when they follow a steady trend, it is extrapolated
+  (Richardson).
+* **Still changing**: every refinement moves the load further, so the run is at least as far off as the finest level.
+* **Inconclusive**: the loads zig-zag; the check gives the finest value with the spread as uncertainty.
+
+Only the end of the stroke is repeated, because that is where the load depends on the mesh. Even so, the check takes
+roughly 5–10 times as long as the run, because the finest level has about 3.5 times the nodes. On the Balanced hex
+bolt head the run takes 3 minutes; the check takes 17 minutes with the 1.6 mm flash and 30 minutes with the 0.8 mm
+flash.
+
+The check found the Balanced runs about 6 % low with the 1.6 mm flash (finer meshes settle at about 111 t). With the
+0.8 mm flash they are 40 % or more low, and the load is still rising at 28,000 nodes. Thin flash needs a much finer mesh.
+
 Input errors (the run cannot start; the workpiece is not drawn) and warnings appear in a box at the top left of the
 view, which says why; click its title to fold it. While a run is solving, the execution bar shows an **ETA**
 (remaining time, weighted towards the recent increments because they slow down near die closure); its tooltip gives
