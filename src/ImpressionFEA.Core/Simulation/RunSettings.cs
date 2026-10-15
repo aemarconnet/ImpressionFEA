@@ -75,7 +75,7 @@ public sealed record RunSettings
 
     public int MaxIterations { get; init; } = 70;
 
-    public double Tolerance { get; init; } = 1e-4;
+    public double Tolerance { get; init; } = ThreeD.SimulationConfig3D.DefaultTolerance;
 
     private static readonly JsonSerializerOptions Json = new()
     {

@@ -46,6 +46,18 @@ the build stamp, e.g. `ImpressionFEA v0.4.0 · build 20261011.0215`.
 - **Flash-resolution check**: when the dies close with less than about one element through the thinnest flash, the run
   ends with an accuracy note (the flash pressure, and so the load, is likely understated) and a suggestion to use the
   Accurate mesh quality or a smaller element size.
+- **3D Newton solver about 30 % faster**: a blended tangent (steadier for low strain-rate sensitivity), a step length
+  from a quadratic model instead of repeated halving, and switching to a secant correction when Newton keeps
+  overshooting; convergence tolerance 1e-3 (was 1e-4). Loads stay within the solver's own run-to-run scatter. Older
+  setups keep the tolerance they were saved with.
+- **Reproducible results**: the choice between an iterative solve and a refactorisation no longer depends on timings,
+  so the same setup gives the same answer however busy the computer is (it varied by 1–2 % before).
+- **Closing load**: run summaries, the completion message and comparison reports show the load at die closure from a
+  straight-line fit over the last millimetre of stroke. It scatters by about ±1 % between equivalent runs, against
+  ±3 % for the single closure increment, so it is the figure to compare designs and meshes by.
+- **Staged resolution and graded meshes (solver options, for studies)**: a "fine finish" that switches to a finer
+  element size near die closure, and graded isosurface stuffing (fine where the metal deforms, coarse in rigid
+  zones). Both work and are tested; neither is in the user interface yet.
 - **Handbook load estimate** (Core): the simplified slab method of Altan, Ngaile & Shen (Eqs 14.8–14.11, with the
   sliding and disk-shearing cavity modes of Table 15.1), with benchmark tests against the book's worked examples.
 - Crash log moved to `%LOCALAPPDATA%\ImpressionFEA`; your own and edited demos go in `Documents\ImpressionFEA\demos`

@@ -37,7 +37,7 @@ public static class IsosurfaceStuffing
         int Center(int i, int j, int k) => nCorner + ((k - k0) * nj + (j - j0)) * ni + (i - i0);
 
         var pos = new List<Vec3>(nCorner + nCenter);
-        var sign = new List<int>(nCorner + nCenter);
+
         for (int k = k0; k <= k1; k++)
         {
             for (int j = j0; j <= j1; j++)
@@ -53,8 +53,6 @@ public static class IsosurfaceStuffing
                 for (int i = i0; i < i1; i++) pos.Add(new Vec3((i + 0.5) * h, (j + 0.5) * h, (k + 0.5) * h) + off);
             }
         }
-
-        foreach (var p in pos) sign.Add(In(p) ? -1 : 1);
 
         // BCC tets: two face-adjacent cube centres + one edge of the shared face.
         var lattice = new List<int>();
@@ -83,7 +81,42 @@ public static class IsosurfaceStuffing
             }
         }
 
-        bool IsCorner(int v) => v < nCorner;
+        var isCorner = new bool[pos.Count];
+        for (int v = 0; v < nCorner; v++) isCorner[v] = true;
+        return StuffLattice(In, pos, isCorner, lattice, h, symX, symY);
+    }
+
+    /// <summary>
+    /// Graded variant: the lattice comes from a balanced octree (<see cref="GradedLattice"/>), with cells from
+    /// <paramref name="hMin"/> up to hMin·2^<paramref name="levels"/> sized by <paramref name="size"/> (the wanted lattice
+    /// spacing at a point). Equal-size neighbours give the usual BCC tets, size changes give transition tets; the cutting
+    /// and warping are the same as for the uniform lattice.
+    /// </summary>
+    public static Result StuffGraded(Func<Vec3, bool> inside, Vec3 min, Vec3 max, double hMin, int levels, Func<Vec3, double> size, bool symX, bool symY)
+    {
+        ArgumentNullException.ThrowIfNull(inside);
+        ArgumentNullException.ThrowIfNull(size);
+        double eps = 1e-7 * hMin;
+        bool In(Vec3 p)
+        {
+            if ((symX && p.X < 0) || (symY && p.Y < 0)) return false;
+            return inside(new Vec3(symX ? Math.Max(p.X, eps) : p.X, symY ? Math.Max(p.Y, eps) : p.Y, p.Z));
+        }
+
+        var off = new Vec3(0.31 * hMin, 0.37 * hMin, 0.17 * hMin);
+        var (pos, isCorner, lattice) = GradedLattice.Build(min, max, hMin, levels, size, off);
+        return StuffLattice(In, pos, isCorner, lattice, hMin, symX, symY);
+    }
+
+    /// <summary>
+    /// Cuts, warps and clips a background tet lattice to the domain. <paramref name="isCorner"/> tells cube corners
+    /// from cube centres: edges between two of the same kind are "long" (α_long), corner–centre edges "short" (α_short).
+    /// </summary>
+    private static Result StuffLattice(Func<Vec3, bool> In, List<Vec3> pos, bool[] isCorner, List<int> lattice, double h, bool symX, bool symY)
+    {
+        var sign = new List<int>(pos.Count);
+        foreach (var p in pos) sign.Add(In(p) ? -1 : 1);
+        bool IsCorner(int v) => v < isCorner.Length && isCorner[v];
 
         // Cut points on lattice edges joining an inside and an outside vertex (bisection on the inside test).
         var cuts = new Dictionary<(int, int), Vec3>();

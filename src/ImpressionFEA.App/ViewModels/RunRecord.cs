@@ -114,6 +114,9 @@ public sealed class RunRecord : ObservableObject
 
     public double PeakLoad => Rows.Count > 0 ? Rows.Max(r => r.LoadTonnes) : 0;
 
+    /// <summary>Closing load, t: straight-line fit of load against die gap over the last mm, at closure (steadier than the peak increment); null if the dies did not close.</summary>
+    public double? ClosingLoad => LoadMetrics.ClosingLoad(Rows);
+
     public double FinalFill => Rows.Count > 0 ? Rows[^1].FillPercent : 0;
 
     public double FinalStroke => Rows.Count > 0 ? Rows[^1].Stroke : 0;
@@ -127,7 +130,7 @@ public sealed class RunRecord : ObservableObject
         _ => "failed",
     };
 
-    public string Summary => Units.Current.Loadf(PeakLoad) + FormattableString.Invariant($" · {FinalFill:F1} % · {StatusText}");
+    public string Summary => Units.Current.Loadf(ClosingLoad ?? PeakLoad) + FormattableString.Invariant($" · {FinalFill:F1} % · {StatusText}");
 
     private static List<DataPoint> LoadPoints(IReadOnlyList<TelemetryRow> rows) =>
         rows.Select(r => new DataPoint(-Units.Current.L(r.DieGap), Units.Current.LoadFromTonnes(r.LoadTonnes))).ToList();

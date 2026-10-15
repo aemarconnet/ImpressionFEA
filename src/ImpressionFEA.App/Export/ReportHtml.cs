@@ -348,6 +348,7 @@ public static partial class ReportHtml
             r => u.LoadFromTonnes(r.Run!.PeakLoad).ToString(u.LoadFormat, Inv) + (r.Run.PeakLoad > r.Settings.PressCapacity ? " ▲" : ""),
             r => r.Run!.PeakLoad > r.Settings.PressCapacity ? "bad" : rank && r.Run.PeakLoad == bestPeak ? "best" : "");
         Row("… at die gap (" + u.Length + ")", r => u.L(r.Rows.MaxBy(x => x.LoadTonnes)!.DieGap).ToString(u.LengthFormat, Inv));
+        Row("Closing load, fitted over the last mm (" + u.Load + ")", r => r.Run!.ClosingLoad is { } c ? u.LoadFromTonnes(c).ToString(u.LoadFormat, Inv) : "–");
         Row("Final cavity fill (%)", r => F($"{r.Run!.FinalFill:F1}"), r => rank && r.Run!.FinalFill == bestFill ? "best" : "");
         Row("Final die gap (" + u.Length + ")", r => u.L(r.Rows[^1].DieGap).ToString(u.LengthFormat, Inv));
         Row("Volume change (%)", r => F($"{r.Run!.VolumeChange:+0.00;-0.00;0.00}"));

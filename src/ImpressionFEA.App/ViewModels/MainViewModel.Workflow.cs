@@ -40,7 +40,7 @@ public sealed partial class MainViewModel
     private double _remeshQuality = 0.12;
     private int _maxNodeCount = SimulationConfig3D.DefaultMaxNodes;
     private int _maxIterations = 70;
-    private double _tolerance = 1e-4;
+    private double _tolerance = SimulationConfig3D.DefaultTolerance;
 
     public bool AutoStep { get => _autoStep; set => SetAdvanced(ref _autoStep, value); }
 
@@ -78,7 +78,7 @@ public sealed partial class MainViewModel
         MaxNodeCount = SimulationConfig3D.DefaultMaxNodes;
         TargetNodes = SimulationConfig3D.DefaultTargetNodes;
         MaxIterations = 70;
-        Tolerance = 1e-4;
+        Tolerance = SimulationConfig3D.DefaultTolerance;
     });
 
     // ================================================================== STEP import / re-import

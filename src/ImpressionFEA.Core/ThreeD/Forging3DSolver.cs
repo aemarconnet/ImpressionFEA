@@ -25,6 +25,29 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
     /// <summary>ANP penalty relative to the reference viscosity σ̄/ε̇ (volume error ≈ 1/factor per unit strain).</summary>
     public static double PenaltyFactor { get; set; } = 1e4;
+
+    // Newton settings. Defaults from the hex bolt head study (2026-10-15): blended tangent, quadratic step length and
+    // adaptive Newton/secant switching, with the 1e-3 tolerance, cut the run time by about 30 % with loads inside the
+    // solver's own run-to-run scatter; the trend start and sticky secant mode did not pay off. Static so studies can vary them.
+
+    /// <summary>
+    /// Fraction of the strain-rate-sensitivity term kept in the Newton tangent (1 = full Newton). For low rate
+    /// sensitivity (hot metals, m ≈ 0.1–0.2) the full tangent is very soft along the flow direction and Newton overshoots;
+    /// 0.6 is a stiffer, steadier tangent.
+    /// </summary>
+    public static double NewtonBlend { get; set; } = 0.6;
+
+    /// <summary>Step length from a quadratic model of the energy along the correction instead of halving.</summary>
+    public static bool QuadraticLineSearch { get; set; } = true;
+
+    /// <summary>Start each increment from the trend of the last two velocity fields (2·v_n − v_n−1).</summary>
+    public static bool ExtrapolateStart { get; set; }
+
+    /// <summary>Switch to a secant (Picard) correction after two halved Newton steps in a row.</summary>
+    public static bool AdaptiveNewton { get; set; } = true;
+
+    /// <summary>After two halved Newton steps in a row, finish the increment with secant (Picard) corrections.</summary>
+    public static bool StickySecant { get; set; }
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     private readonly SimulationConfig3D _cfg;
@@ -34,7 +57,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     private readonly bool _symX;
     private readonly bool _symY;
     private readonly int _symFactor;
-    private readonly double _h;
+    private double _h;
     private readonly double _ram;
     private readonly double _rateRef;
     private readonly double _rateCut;
@@ -182,6 +205,26 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     private TetMesh BuildMesh(Vec3[] points, int[] tets) =>
         new(points.Length, tets, points.Select(p => _symX && p.X == 0).ToArray(), points.Select(p => _symY && p.Y == 0).ToArray());
 
+    /// <summary>Nominal stroke increment, scaled with h after the fine finish switch.</summary>
+    private double StepCap => _cfg.StrokeIncrement * _h / _cfg.ElementSize;
+
+    private bool _fineFinished;
+
+    /// <summary>
+    /// Staged resolution: once the die gap falls to <see cref="SimulationConfig3D.FineFinishGap"/>, h is scaled by
+    /// <see cref="SimulationConfig3D.FineFinishFactor"/> and the workpiece is remeshed, so the costly fine mesh is only used
+    /// for the end of the stroke, where the flash forms and the load peaks. Returns the remesh reason, or null.
+    /// </summary>
+    private string? FineFinishSwitch()
+    {
+        if (_fineFinished || !(_cfg.FineFinishGap > 0) || _gap > _cfg.FineFinishGap) return null;
+        _fineFinished = true;
+        double hOld = _h;
+        _h *= _cfg.FineFinishFactor;
+        _edgeBottom = _edgeTop = null;
+        return F($"fine finish: h {hOld:F2} → {_h:F2} mm at gap {_gap:F2} mm");
+    }
+
     /// <summary>Largest compression of the thinnest die-held layer per increment (fraction of its thickness).</summary>
     public const double LayerStrainPerIncrement = 0.1;
 
@@ -201,7 +244,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
 
         return double.IsFinite(thinnest)
-            ? Math.Max(LayerStrainPerIncrement * thinnest, _cfg.StrokeIncrement / (1 << _cfg.MaxCutbacks))
+            ? Math.Max(LayerStrainPerIncrement * thinnest, StepCap / (1 << _cfg.MaxCutbacks))
             : double.PositiveInfinity;
     }
 
@@ -237,20 +280,87 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     /// <summary>Places where an increment failed; later remeshes refine around them (die corners are fixed in space).</summary>
     private readonly List<(Vec3 At, int Level)> _hotSpots = [];
 
-    /// <summary>Target element size at p: h, reduced in thin flash (closed gap &lt; 2.5·h) and around hot spots, down to h / 2^levels.</summary>
+    /// <summary>Thin-flash refinement aims for this many elements (longest edges) through the closed die gap.</summary>
+    public static double ThinFlashElements { get; set; } = 2.5;
+
+    /// <summary>Target element size at p: h, reduced in thin flash (closed gap &lt; ThinFlashElements·h) and around hot spots, down to h / 2^levels.</summary>
     private double TargetSize(Vec3 p)
     {
         int levels = _cfg.RefinementLevels;
         if (levels <= 0) return _h;
-        double hMin = _h / (1 << levels), t = _h;
+        double hMin = _h / (1 << levels), t = _sizeLocator is not null ? GradedSize(p) : _h;
         double zb = _cfg.RefineThinFlash ? _die.Bottom.SurfaceZ(p.X, p.Y) : double.NaN, zt = _cfg.RefineThinFlash ? _die.TopClosed.SurfaceZ(p.X, p.Y) + _gap : double.NaN;
-        if (_cfg.RefineThinFlash && double.IsFinite(zb) && double.IsFinite(zt) && zt - zb < 2.5 * _h) t = Math.Min(t, Math.Max((zt - zb) / 2.5, hMin));
+        if (_cfg.RefineThinFlash && double.IsFinite(zb) && double.IsFinite(zt) && zt - zb < ThinFlashElements * _h) t = Math.Min(t, Math.Max((zt - zb) / ThinFlashElements, hMin));
         foreach (var (at, level) in _hotSpots)
         {
             if ((p - at).LengthSquared < 4 * _h * _h) t = Math.Min(t, Math.Max(_h / (1 << level), hMin));
         }
 
+        if (_cfg.RefineDieEdges && t > 0.5 * _h && NearDieEdge(p)) t = Math.Max(0.5 * _h, hMin);
         return t;
+    }
+
+    /// <summary>
+    /// Graded mesh size at p during a remesh: h where the previous increment deformed (strain rate above
+    /// AdaptiveRateFraction × nominal) or where the dies are close (gap under three coarse cells), 2·h elsewhere.
+    /// </summary>
+    private double GradedSize(Vec3 p)
+    {
+        double coarse = 2 * _h;
+        if (_sizeLocator is { } loc && loc.FindNearest(p) is int e and >= 0 && e < _elRate.Length && _elRate[e] >= _cfg.AdaptiveRateFraction * _rateRef) return _h;
+        double zb = _die.Bottom.SurfaceZ(p.X, p.Y), zt = _die.TopClosed.SurfaceZ(p.X, p.Y) + _gap;
+        if (double.IsFinite(zb) && double.IsFinite(zt) && zt - zb < 3 * coarse) return _h;
+        return coarse;
+    }
+
+    // Die-edge points (bottom die fixed; top die stored closed, shifted up by the current gap at query time) in a hash
+    // grid of cell size h.
+    private Dictionary<(int, int, int), List<Vec3>>? _edgeBottom, _edgeTop;
+
+    /// <summary>Old mesh during an adaptive remesh: its element strain rates decide where to refine.</summary>
+    private TetLocator? _sizeLocator;
+
+    private Dictionary<(int, int, int), List<Vec3>> EdgeGrid(IRigidDie die)
+    {
+        var grid = new Dictionary<(int, int, int), List<Vec3>>();
+        foreach (var q in die.FeaturePoints(0.5 * _h, 20))
+        {
+            var key = ((int)Math.Floor(q.X / _h), (int)Math.Floor(q.Y / _h), (int)Math.Floor(q.Z / _h));
+            if (!grid.TryGetValue(key, out var list)) grid[key] = list = [];
+            list.Add(q);
+        }
+
+        return grid;
+    }
+
+    /// <summary>p lies within one element (h) of a sharp edge of either die.</summary>
+    private bool NearDieEdge(Vec3 p)
+    {
+        _edgeBottom ??= EdgeGrid(_die.Bottom);
+        _edgeTop ??= EdgeGrid(_die.TopClosed);
+        return Near(_edgeBottom, p) || Near(_edgeTop, new Vec3(p.X, p.Y, p.Z - _gap));
+
+        bool Near(Dictionary<(int, int, int), List<Vec3>> grid, Vec3 q)
+        {
+            int i0 = (int)Math.Floor(q.X / _h), j0 = (int)Math.Floor(q.Y / _h), k0 = (int)Math.Floor(q.Z / _h);
+            double r2 = _h * _h;
+            for (int i = i0 - 1; i <= i0 + 1; i++)
+            {
+                for (int j = j0 - 1; j <= j0 + 1; j++)
+                {
+                    for (int k = k0 - 1; k <= k0 + 1; k++)
+                    {
+                        if (!grid.TryGetValue((i, j, k), out var list)) continue;
+                        foreach (var e in list)
+                        {
+                            if ((e - q).LengthSquared < r2) return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
     }
 
     private void ForceContact(NodeContact side)
@@ -432,7 +542,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         if (IsFinished) throw new InvalidOperationException("Simulation already reached the closed-die position.");
         StepIndex++;
         var sw = Stopwatch.StartNew();
-        string? trigger = RemeshTrigger();
+        string? trigger = FineFinishSwitch() ?? RemeshTrigger();
         if (trigger is not null) Remesh(trigger);
 
         int iterations = 0;
@@ -467,7 +577,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             double power = FinalEvaluation(out reaction);
             load = power / _ram * _symFactor;
             reaction *= _symFactor;
-            double ds = Math.Min(_cfg.AutoStep ? _ds : _cfg.StrokeIncrement, LayerLimitedIncrement());
+            double ds = Math.Min(_cfg.AutoStep ? Math.Min(_ds, StepCap) : StepCap, LayerLimitedIncrement());
             dt = Math.Min(ds, _gap) / _ram;
             if (_gap - _ram * dt < 0.05 * ds) dt = _gap / _ram;
             for (int attempt = 0; attempt <= _cfg.MaxCutbacks && !ok; attempt++)
@@ -509,7 +619,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         if (_cfg.AutoStep)
         {
             double used = _ram * dt;
-            _ds = usedCutback > 0 ? Math.Max(used, _cfg.StrokeIncrement / (1 << _cfg.MaxCutbacks)) : Math.Min(_cfg.StrokeIncrement, 1.5 * _ds);
+            _ds = usedCutback > 0 ? Math.Max(used, StepCap / (1 << _cfg.MaxCutbacks)) : Math.Min(StepCap, 1.5 * _ds);
             if (usedCutback > 0) _log(F($"  auto-step: next Δs {_ds:F4} mm"));
         }
 
@@ -739,11 +849,14 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         for (int n = 0; n < _nn; n++) _kFric[n] = kcnt[n] > 0 ? ksum[n] / kcnt[n] : 0;
     }
 
+    private Vec3[] _vgPrev = [];
+
     private void LoadVelocityGuess()
     {
+        bool trend = ExtrapolateStart && _warm && _vgPrev.Length == _nn;
         for (int n = 0; n < _nn; n++)
         {
-            var l = ToLocal(n, _vg[n]);
+            var l = ToLocal(n, trend ? 2 * _vg[n] - _vgPrev[n] : _vg[n]);
             _v[Dof(n, 0)] = l.X;
             _v[Dof(n, 1)] = l.Y;
             _v[Dof(n, 2)] = l.Z;
@@ -764,13 +877,17 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         converged = false;
         _lastRel = double.PositiveInfinity;
         int it;
+        int halvedInARow = 0;
+        bool secantOnly = false;
         for (it = 1; it <= _cfg.MaxIterations; it++)
         {
             ct.ThrowIfCancellationRequested();
             // After a converged increment on the same mesh the previous velocity is an excellent start: go straight to Newton.
             // Newton for fast convergence; if it stalls (typically during the final flash squeeze, where contact and
             // the rate cut-off switch state), fall back to Picard, which decreases the convex functional monotonically.
-            bool newton = (_warm || it > 2) && it <= NewtonLimit;
+            // Adaptive switching: after two halved Newton steps in a row take one secant (Picard) step, then try Newton again.
+            if (StickySecant && halvedInARow >= 2) secantOnly = true;
+            bool newton = (_warm || it > 2) && it <= NewtonLimit && !secantOnly && !(AdaptiveNewton && halvedInARow >= 2);
             double e0 = Timed(ref _tAssemble, () => Assemble(true, newton, _v, out _));
             double maxDiag = 0;
             for (int j = 0; j < _ndof; j++)
@@ -809,10 +926,13 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
                 for (int d = 0; d < _ndof; d++) _vTrial[d] = _v[d] + beta * _dv[d];
                 double e1 = Timed(ref _tAssemble, () => Assemble(false, false, _vTrial, out _));
                 if (e1 <= e0 + 1e-4 * beta * slope + 1e-11 * Math.Abs(e0)) break;
-                beta *= 0.5;
+                // Quadratic model through Π(0), its slope and Π(β): step to its minimum (within 0.1β … 0.7β).
+                double curv = (e1 - e0 - slope * beta) / (beta * beta);
+                beta = QuadraticLineSearch && curv > 0 ? Math.Clamp(-slope / (2 * curv), 0.1 * beta, 0.7 * beta) : 0.5 * beta;
             }
 
             Array.Copy(_vTrial, _v, _ndof);
+            halvedInARow = newton && beta < 1 ? halvedInARow + 1 : 0;
             double rel = beta * Norm(_dv) / Math.Max(Norm(_v), 1e-30);
             _lastRel = rel;
             _log(F($"    it {it,2} {(newton ? "NR" : "PI")}  |R| {rnorm,10:E3} N  |Δv|/|v| {rel,9:E2}  λ {beta,4:F2}  {how,-9} {cholMs,7:F1} ms"));
@@ -858,11 +978,10 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
         }
         else if (_haveFactor)
         {
-            // Keep iterating as long as it is cheaper than refactorising.
-            int budget = (int)Math.Clamp(0.8 * _factorMs / Math.Max(_pcgIterMs, 1e-3), 6, 400);
+            // A fixed iteration budget (not a timing-based one): the same input then always takes the same path and
+            // gives the same result, whatever else the machine is doing.
             long p0 = Stopwatch.GetTimestamp();
-            int its = Pcg(b, x, 1e-7, budget, out int done);
-            _pcgIterMs = Stopwatch.GetElapsedTime(p0).TotalMilliseconds / Math.Max(done + 1, 1);
+            int its = Pcg(b, x, 1e-7, PcgBudget, out _);
             _tPcg += Stopwatch.GetElapsedTime(p0).TotalSeconds;
             if (its >= 0)
             {
@@ -922,9 +1041,11 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     }
 
     private double _factorMs = 1000;
-    private double _pcgIterMs = 10;
 
     private int _pcgFailures, _pcgSkip;
+
+    /// <summary>Preconditioned CG iterations tried before refactorising (fixed, so results do not depend on timings).</summary>
+    public static int PcgBudget { get; set; } = 15;
 
     /// <summary>Preconditioned CG with the cached Cholesky factor; returns iterations or -1 if not converged.</summary>
     private int Pcg(double[] b, double[] x, double tol, int maxIt, out int done)
@@ -1264,7 +1385,7 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
             w.MB[60 + k] = w.B[60 + k] / 3;
         }
 
-        double wm = vol * mu, wn = newton ? vol * coefN : 0;
+        double wm = vol * mu, wn = newton ? vol * coefN * NewtonBlend : 0;
         for (int p = 0; p < 12; p++)
         {
             for (int q = p; q < 12; q++)
@@ -1281,6 +1402,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
     private double FinalEvaluation(out double reaction)
     {
         Assemble(false, false, _v, out double power);
+        if (_vgPrev.Length != _nn) _vgPrev = new Vec3[_nn];
+        Array.Copy(_vg, _vgPrev, _nn); // the previous increment's velocities, for the trend start
         reaction = 0;
         double maxB = 0, maxT = 0;
         for (int n = 0; n < _nn; n++)
@@ -1743,6 +1866,8 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
     private string? RemeshTrigger()
     {
+        // Adaptive refinement needs one solved increment to know where the metal deforms: remesh right after it.
+        if (_cfg.GradedMesh && RemeshCount == 0 && StepIndex == 2) return "graded mesh";
         // Cheap first aid: interior-node smoothing often lifts the worst tets above the threshold without a remesh.
         if (MinQuality(_x, _t) < _cfg.RemeshQuality) SmoothInterior(_t, _x, _cfg.RemeshQuality, 6);
         double q = MinQuality(_x, _t);
@@ -1809,23 +1934,34 @@ public sealed class Forging3DSolver : IForgingStepper, IDisposable
 
         IsosurfaceStuffing.Result res;
         TetMesh mesh;
+        int splits = 0;
+        _sizeLocator = _cfg.GradedMesh ? locator : null;
         try
         {
-            res = IsosurfaceStuffing.Stuff(locator.Contains, min, max, _h, _symX, _symY);
+            try
+            {
+                res = _cfg.GradedMesh
+                    ? IsosurfaceStuffing.StuffGraded(locator.Contains, min, max, _h, 1, GradedSize, _symX, _symY)
+                    : IsosurfaceStuffing.Stuff(locator.Contains, min, max, _h, _symX, _symY);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _log(F($"  remesh ({reason}) rejected: {ex.Message}"));
+                return false;
+            }
+
+            var xs = res.Points;
+            var ts = res.Tets;
+            if (_cfg.RefinementLevels > 0) (xs, ts, splits) = TetRefiner.Refine(xs, ts, TargetSize, _cfg.MaxNodeCount);
+            res = new IsosurfaceStuffing.Result(xs, ts);
         }
-        catch (InvalidOperationException ex)
+        finally
         {
-            _log(F($"  remesh ({reason}) rejected: {ex.Message}"));
-            return false;
+            _sizeLocator = null;
         }
 
         var x = res.Points;
         var tetsNew = res.Tets;
-        int splits = 0;
-        if (_cfg.RefinementLevels > 0)
-        {
-            (x, tetsNew, splits) = TetRefiner.Refine(x, tetsNew, TargetSize, _cfg.MaxNodeCount);
-        }
 
         try
         {

@@ -200,6 +200,48 @@ public interface IRigidDie
 
     /// <summary>Working-surface height at (x, y): highest die point (bottom die) or lowest (top die); NaN where the die is absent.</summary>
     double SurfaceZ(double x, double y);
+
+    /// <summary>
+    /// Points along the die's sharp edges (faces meeting at more than <paramref name="minAngleDeg"/>), about
+    /// <paramref name="spacing"/> apart, in the die's own position (closed for the top die). Used to refine the workpiece
+    /// mesh where it flows around die edges.
+    /// </summary>
+    IReadOnlyList<Vec3> FeaturePoints(double spacing, double minAngleDeg) => [];
+}
+
+/// <summary>Sharp-edge detection shared by the die types.</summary>
+internal static class DieFeatures
+{
+    /// <summary>Edges of a closed triangle mesh whose two faces meet at more than the given angle, sampled every <paramref name="spacing"/>.</summary>
+    public static List<Vec3> SharpEdges(Vec3[] v, int[] tri, double spacing, double minAngleDeg)
+    {
+        double cosMax = Math.Cos(minAngleDeg * Math.PI / 180);
+        var faceOf = new Dictionary<long, int>();
+        var pts = new List<Vec3>();
+        Vec3 Cross(int f) => (v[tri[3 * f + 1]] - v[tri[3 * f]]).Cross(v[tri[3 * f + 2]] - v[tri[3 * f]]);
+        for (int f = 0; f < tri.Length / 3; f++)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                int a = tri[3 * f + k], b = tri[3 * f + (k + 1) % 3];
+                long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                if (!faceOf.TryGetValue(key, out int g))
+                {
+                    faceOf[key] = f;
+                    continue;
+                }
+
+                Vec3 nf = Cross(f), ng = Cross(g);
+                if (nf.LengthSquared < 1e-18 || ng.LengthSquared < 1e-18) continue; // degenerate facet
+                if (nf.Normalized().Dot(ng.Normalized()) > cosMax) continue;
+                double len = (v[b] - v[a]).Length;
+                int n = Math.Max(1, (int)Math.Ceiling(len / spacing));
+                for (int s = 0; s <= n; s++) pts.Add(Vec3.Lerp(v[a], v[b], (double)s / n));
+            }
+        }
+
+        return pts;
+    }
 }
 
 /// <summary>Rigid die given as a closed triangulated solid (imported from CAD).</summary>
@@ -242,6 +284,8 @@ public sealed class TriMeshDie : IRigidDie
 
     [ThreadStatic]
     private static List<double>? _hits;
+
+    public IReadOnlyList<Vec3> FeaturePoints(double spacing, double minAngleDeg) => DieFeatures.SharpEdges(Solid.Vertices, Solid.Triangles, spacing, minAngleDeg);
 
     public double SurfaceZ(double x, double y)
     {

@@ -106,6 +106,26 @@ public sealed class HeightFieldDie : IRigidDie
         return (1 - u) * (1 - v) * _h[j * w + i] + u * (1 - v) * _h[j * w + i + 1] + (1 - u) * v * _h[(j + 1) * w + i] + u * v * _h[(j + 1) * w + i + 1];
     }
 
+    /// <summary>Grid points where the surface normal turns by more than <paramref name="minAngleDeg"/> to a neighbour (die edges).</summary>
+    public IReadOnlyList<Vec3> FeaturePoints(double spacing, double minAngleDeg)
+    {
+        double cosMax = Math.Cos(minAngleDeg * Math.PI / 180);
+        Vec3 N(int i, int j) => new Vec3(-(Sample(i + 1, j) - Sample(i - 1, j)) / (2 * Dx), -(Sample(i, j + 1) - Sample(i, j - 1)) / (2 * Dx), 1).Normalized();
+        int step = Math.Max(1, (int)Math.Round(spacing / Dx));
+        var pts = new List<Vec3>();
+        for (int j = 0; j <= Ny; j += step)
+        {
+            for (int i = 0; i <= Nx; i += step)
+            {
+                var n = N(i, j);
+                if (n.Dot(N(i + 1, j)) > cosMax && n.Dot(N(i, j + 1)) > cosMax && n.Dot(N(i - 1, j)) > cosMax && n.Dot(N(i, j - 1)) > cosMax) continue;
+                pts.Add(new Vec3(X0 + i * Dx, Y0 + j * Dx, Sample(i, j)));
+            }
+        }
+
+        return pts;
+    }
+
     /// <summary>Vertical clearance: positive in the open cavity, negative when penetrating.</summary>
     public double Clearance(Vec3 p, double offset)
     {

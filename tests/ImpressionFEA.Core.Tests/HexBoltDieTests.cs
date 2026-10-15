@@ -43,4 +43,17 @@ public class HexBoltDieTests
         Assert.Equal(3.2, d.TopClosed.SurfaceZ(0, 19.05 + 2.4), 3);
         Assert.Equal("Hex bolt head 1\" (3D)", d.Name);
     }
+
+    /// <summary>Die-edge detection finds the cavity-to-flash-land edge (top die) and the bore entry (bottom die), not the faceted cylinder.</summary>
+    [Fact]
+    public void SharpDieEdgesAreFound()
+    {
+        var d = DiePresets3D.HexBoltHead();
+        var top = d.TopClosed.FeaturePoints(1.0, 20);
+        var bottom = d.Bottom.FeaturePoints(1.0, 20);
+        static double R(Vec3 p) => Math.Sqrt(p.X * p.X + p.Y * p.Y);
+        Assert.Contains(top, p => p.Z > 1.5 && p.Z < 3.0 && R(p) > 18.5 && R(p) < 23.5); // hex wall into the flash land (fillet)
+        Assert.Contains(bottom, p => Math.Abs(p.Z) < 1.1 && Math.Abs(R(p) - 13.5) < 1.0); // 45° chamfer at the bore entry
+        Assert.DoesNotContain(bottom, p => p.Z < -5 && p.Z > -30 && Math.Abs(R(p) - 13.0) < 0.2); // bore wall facets (3°) are not edges
+    }
 }

@@ -27,7 +27,10 @@ public sealed record SimulationConfig3D
 
     public int MaxIterations { get; init; } = 70;
 
-    public double Tolerance { get; init; } = 1e-4;
+    /// <summary>Velocity convergence tolerance |Δv|/|v| (1e-3 with the default Newton settings: loads within the solver's own run-to-run scatter).</summary>
+    public double Tolerance { get; init; } = DefaultTolerance;
+
+    public const double DefaultTolerance = 1e-3;
 
     /// <summary>Sparse direct solver: Auto = NVIDIA GPU (cuDSS) → multithreaded CPU (MKL PARDISO) → managed.</summary>
     public Solver.Linear.LinearBackend LinearBackend { get; init; } = Solver.Linear.LinearBackend.Auto;
@@ -45,6 +48,29 @@ public sealed record SimulationConfig3D
 
     /// <summary>Also refine wherever the closed die gap is thin (flash lands) — more accurate flash, more nodes and time.</summary>
     public bool RefineThinFlash { get; init; }
+
+    /// <summary>Also refine (one level) within one element of sharp die edges, where metal flows around them into the flash.</summary>
+    public bool RefineDieEdges { get; init; }
+
+    /// <summary>
+    /// Graded, solution-adaptive mesh: every remesh uses the element size h where the previous increment deformed (strain
+    /// rate above <see cref="AdaptiveRateFraction"/> of the nominal rate) or the die gap is thin, and 2·h elsewhere (shank
+    /// in a bore, dead zones), built directly by graded isosurface stuffing.
+    /// </summary>
+    public bool GradedMesh { get; init; }
+
+    /// <summary>Strain rate, as a fraction of the nominal rate (ram speed / billet height), above which an element counts as deforming.</summary>
+    public double AdaptiveRateFraction { get; init; } = 0.2;
+
+    /// <summary>
+    /// Staged resolution: when the die gap falls to this (mm), h is multiplied by <see cref="FineFinishFactor"/> and the
+    /// workpiece remeshed — the fine mesh is only paid for at the end of the stroke, where the flash forms and the load
+    /// peaks. 0 = off.
+    /// </summary>
+    public double FineFinishGap { get; init; }
+
+    /// <summary>Element-size factor of the fine finish (0.65 ≈ 3.6× the nodes).</summary>
+    public double FineFinishFactor { get; init; } = 0.65;
 
     /// <summary>Remesh when the worst element quality (normalised, 1 = regular tet) drops below this.</summary>
     public double RemeshQuality { get; init; } = 0.12;
